@@ -3,344 +3,432 @@ package com.example.datashield_fyp
 import android.content.Context
 import android.util.Log
 import androidx.documentfile.provider.DocumentFile
-import java.io.ByteArrayOutputStream
+import java.io.BufferedInputStream
+import java.io.BufferedOutputStream
 import java.security.SecureRandom
 import javax.crypto.Cipher
+import javax.crypto.CipherOutputStream
 import javax.crypto.spec.GCMParameterSpec
 import javax.crypto.spec.SecretKeySpec
 
-
 object EncryptionEngine {
-
 
     private const val TAG = "DataShield"
 
+    // DataShield encrypted file header
+    private const val HEADER = "DS01"
 
+    // AES-GCM recommended IV length
+    private const val IV_LENGTH = 12
 
-    // TEMPORARY AES-256 KEY
-    // Later replace this with the server-unwrapped key
-    private val aesKey = byteArrayOf(
+    // AES-GCM authentication tag length
+    private const val TAG_LENGTH = 128
 
-        0x01,0x02,0x03,0x04,
-        0x05,0x06,0x07,0x08,
+    // Buffer used for streaming file encryption
+    private const val BUFFER_SIZE = 64 * 1024
 
-        0x09,0x0A,0x0B,0x0C,
-        0x0D,0x0E,0x0F,0x10,
-
-        0x11,0x12,0x13,0x14,
-        0x15,0x16,0x17,0x18,
-
-        0x19,0x1A,0x1B,0x1C,
-        0x1D,0x1E,0x1F,0x20
-
-    )
-
-
-
-
-
-    fun encryptImage(
-
+    /**
+     * Encrypt any supported file using AES-GCM.
+     *
+     * Output format:
+     *
+     * DS01
+     * + 12-byte IV
+     * + encrypted data
+     * + GCM authentication tag
+     *
+     * Output filename:
+     *
+     * originalName.ext.dsenc
+     *
+     * The original file is NOT deleted here.
+     * FolderMonitor deletes it only after successful encryption.
+     */
+    fun encryptFile(
         context: Context,
-
-        image: DocumentFile,
-
-        parent: DocumentFile
-
+        file: DocumentFile,
+        parent: DocumentFile,
+        keyBytes: ByteArray
     ): DocumentFile? {
 
+        var encryptedFile: DocumentFile? = null
 
-        return try {
+        try {
 
+            // ====================================================
+            // VALIDATE FILE
+            // ====================================================
+
+            if (!file.exists()) {
+
+                Log.e(
+                    TAG,
+                    "File does not exist: ${file.name}"
+                )
+
+                return null
+            }
+
+            if (!file.isFile) {
+
+                Log.e(
+                    TAG,
+                    "Not a file: ${file.name}"
+                )
+
+                return null
+            }
+
+            if (keyBytes.isEmpty()) {
+
+                Log.e(
+                    TAG,
+                    "Encryption key is empty."
+                )
+
+                return null
+            }
+
+            // AES-128/192/256 are supported.
+            // DataShield expects AES-256.
+            if (keyBytes.size != 32) {
+
+                Log.e(
+                    TAG,
+                    "Invalid AES-256 key length: ${keyBytes.size} bytes"
+                )
+
+                return null
+            }
+
+            val originalName =
+                file.name ?: return null
+
+            // ====================================================
+            // NEVER ENCRYPT .DSENC
+            // ====================================================
+
+            if (
+                originalName.endsWith(
+                    ".dsenc",
+                    ignoreCase = true
+                )
+            ) {
+
+                Log.d(
+                    TAG,
+                    "Skipping already encrypted file: $originalName"
+                )
+
+                return null
+            }
+
+            // ====================================================
+            // CHECK SOURCE FILE SIZE
+            // ====================================================
+
+            val originalLength =
+                file.length()
+
+            if (originalLength <= 0) {
+
+                Log.d(
+                    TAG,
+                    "Skipping empty file: $originalName"
+                )
+
+                return null
+            }
 
             Log.d(
                 TAG,
-                "Encrypting: ${image.name}"
+                "Starting encryption:"
             )
 
+            Log.d(
+                TAG,
+                "File: $originalName"
+            )
 
+            Log.d(
+                TAG,
+                "Size: $originalLength bytes"
+            )
 
-            /*
-             * Read original image
-             */
-
-            val originalBytes =
-
-                context.contentResolver
-                    .openInputStream(image.uri)
-                    ?.use {
-
-                        it.readBytes()
-
-                    }
-                    ?: return null
-
-
-
-
-
-            /*
-             * Generate random IV
-             */
+            // ====================================================
+            // GENERATE RANDOM IV
+            // ====================================================
 
             val iv =
-                ByteArray(12)
+                ByteArray(IV_LENGTH)
 
+            SecureRandom().nextBytes(iv)
 
-            SecureRandom()
-                .nextBytes(iv)
+            // ====================================================
+            // CREATE AES-GCM CIPHER
+            // ====================================================
 
-
-
-
-
-
-            /*
-             * AES-256-GCM Encryption
-             */
+            val secretKey =
+                SecretKeySpec(
+                    keyBytes,
+                    "AES"
+                )
 
             val cipher =
-
                 Cipher.getInstance(
                     "AES/GCM/NoPadding"
                 )
 
-
-
-            val secretKey =
-
-                SecretKeySpec(
-                    aesKey,
-                    "AES"
-                )
-
-
-
             val gcmSpec =
-
                 GCMParameterSpec(
-                    128,
+                    TAG_LENGTH,
                     iv
                 )
 
-
-
             cipher.init(
-
                 Cipher.ENCRYPT_MODE,
-
                 secretKey,
-
                 gcmSpec
-
             )
 
-
-
-            val encryptedBytes =
-
-                cipher.doFinal(
-                    originalBytes
-                )
-
-
-
-
-
-
-            /*
-             * Create encrypted filename
-             */
-
-            val originalName =
-                image.name ?: "image"
-
+            // ====================================================
+            // CREATE ENCRYPTED FILE
+            // ====================================================
 
             val encryptedName =
+                "$originalName.dsenc"
 
-                originalName
-                    .substringBeforeLast('.') + ".dsenc"
-
-
-
-
-
-
-            /*
-             * Prevent duplicate encrypted files
-             */
-
-            val alreadyExists =
-
-                parent.listFiles()
-                    .any {
-
-                        it.name == encryptedName
-
-                    }
-
-
-
-            if(alreadyExists){
-
-
-                Log.d(
-                    TAG,
-                    "Encrypted file already exists, skipping"
+            encryptedFile =
+                parent.createFile(
+                    "application/octet-stream",
+                    encryptedName
                 )
 
+            if (encryptedFile == null) {
 
-                return parent.listFiles()
-                    .first {
+                Log.e(
+                    TAG,
+                    "Could not create encrypted file: $encryptedName"
+                )
 
-                        it.name == encryptedName
-
-                    }
-
+                return null
             }
 
+            // ====================================================
+            // OPEN INPUT STREAM
+            // ====================================================
 
-
-
-
-
-
-            /*
-             * Create encrypted file
-             */
-
-            val outputFile =
-
-                parent.createFile(
-
-                    "application/octet-stream",
-
-                    encryptedName
-
+            val inputStream =
+                context.contentResolver.openInputStream(
+                    file.uri
                 )
-                ?: return null
 
+            if (inputStream == null) {
 
+                Log.e(
+                    TAG,
+                    "Could not open input stream: $originalName"
+                )
 
+                encryptedFile.delete()
+                encryptedFile = null
 
+                return null
+            }
 
+            // ====================================================
+            // OPEN OUTPUT STREAM
+            // ====================================================
 
-            /*
-             * DataShield file format
-             *
-             * HEADER
-             * DS01
-             *
-             * IV
-             * 12 bytes
-             *
-             * DATA
-             * Ciphertext + Authentication Tag
-             *
-             */
+            val outputStream =
+                context.contentResolver.openOutputStream(
+                    encryptedFile.uri,
+                    "w"
+                )
 
+            if (outputStream == null) {
 
-            val outputData =
+                Log.e(
+                    TAG,
+                    "Could not open output stream: $encryptedName"
+                )
 
-                ByteArrayOutputStream()
+                inputStream.close()
+                encryptedFile.delete()
+                encryptedFile = null
 
+                return null
+            }
 
+            // ====================================================
+            // STREAM ENCRYPTION
+            // ====================================================
 
-            outputData.write(
+            inputStream.use { input ->
 
-                "DS01".toByteArray()
+                outputStream.use { output ->
 
-            )
+                    val bufferedInput =
+                        BufferedInputStream(
+                            input,
+                            BUFFER_SIZE
+                        )
 
+                    val bufferedOutput =
+                        BufferedOutputStream(
+                            output,
+                            BUFFER_SIZE
+                        )
 
+                    // ------------------------------------------------
+                    // WRITE HEADER
+                    // ------------------------------------------------
 
-            outputData.write(iv)
-
-
-
-            outputData.write(
-
-                encryptedBytes
-
-            )
-
-
-
-
-
-
-            context.contentResolver
-                .openOutputStream(outputFile.uri)
-                ?.use {
-
-                    it.write(
-                        outputData.toByteArray()
+                    bufferedOutput.write(
+                        HEADER.toByteArray(
+                            Charsets.UTF_8
+                        )
                     )
 
+                    // ------------------------------------------------
+                    // WRITE IV
+                    // ------------------------------------------------
+
+                    bufferedOutput.write(iv)
+
+                    bufferedOutput.flush()
+
+                    // ------------------------------------------------
+                    // AES-GCM STREAM
+                    // ------------------------------------------------
+
+                    val cipherOutput =
+                        CipherOutputStream(
+                            bufferedOutput,
+                            cipher
+                        )
+
+                    cipherOutput.use { encryptedOutput ->
+
+                        val buffer =
+                            ByteArray(BUFFER_SIZE)
+
+                        var totalRead = 0L
+
+                        while (true) {
+
+                            val bytesRead =
+                                bufferedInput.read(
+                                    buffer
+                                )
+
+                            if (bytesRead == -1) {
+                                break
+                            }
+
+                            if (bytesRead > 0) {
+
+                                encryptedOutput.write(
+                                    buffer,
+                                    0,
+                                    bytesRead
+                                )
+
+                                totalRead += bytesRead
+                            }
+                        }
+
+                        encryptedOutput.flush()
+
+                        Log.d(
+                            TAG,
+                            "Encrypted $totalRead bytes: $originalName"
+                        )
+                    }
                 }
-                ?: return null
+            }
 
+            // ====================================================
+            // VERIFY ENCRYPTED FILE
+            // ====================================================
 
+            if (
+                !encryptedFile.exists() ||
+                encryptedFile.length() <= 0
+            ) {
 
+                Log.e(
+                    TAG,
+                    "Encrypted file was not created correctly: $encryptedName"
+                )
 
+                encryptedFile.delete()
+                encryptedFile = null
 
-
-            Log.d(
-
-                TAG,
-
-                "Encrypted file created: ${outputFile.name}"
-
-            )
-
-
-
-            Log.d(
-
-                TAG,
-
-                "Original size: ${originalBytes.size} bytes"
-
-            )
-
-
+                return null
+            }
 
             Log.d(
-
                 TAG,
-
-                "Encrypted size: ${encryptedBytes.size} bytes"
-
+                "Encryption successful:"
             )
 
+            Log.d(
+                TAG,
+                "$originalName -> $encryptedName"
+            )
 
+            Log.d(
+                TAG,
+                "Encrypted size: ${encryptedFile.length()} bytes"
+            )
 
-            return outputFile
+            return encryptedFile
 
-
-
-        }
-
-        catch(e: Exception){
-
+        } catch (e: Exception) {
 
             Log.e(
-
                 TAG,
-
-                "Encryption failed",
-
+                "Encryption failed: ${file.name}",
                 e
-
             )
 
+            // ----------------------------------------------------
+            // DELETE PARTIAL ENCRYPTED FILE
+            // ----------------------------------------------------
 
-            null
+            try {
 
+                encryptedFile?.delete()
+
+            } catch (deleteException: Exception) {
+
+                Log.e(
+                    TAG,
+                    "Could not delete incomplete encrypted file",
+                    deleteException
+                )
+            }
+
+            return null
         }
-
-
     }
 
+    /**
+     * Backwards-compatible image encryption method.
+     */
+    fun encryptImage(
+        context: Context,
+        file: DocumentFile,
+        parent: DocumentFile,
+        keyBytes: ByteArray
+    ): DocumentFile? {
 
+        return encryptFile(
+            context,
+            file,
+            parent,
+            keyBytes
+        )
+    }
 }

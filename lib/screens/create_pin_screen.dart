@@ -12,51 +12,87 @@ class CreatePinScreen extends StatefulWidget {
 
 class _CreatePinScreenState extends State<CreatePinScreen> {
   String pin = "";
+  bool isNavigating = false;
+
+  // ============================================================
+  // ADD DIGIT
+  // ============================================================
 
   void addDigit(String digit) {
-    if (pin.length < 6) {
+    if (pin.length < 4 && !isNavigating) {
       setState(() {
         pin += digit;
       });
 
-      if (pin.length == 6) {
-        Future.delayed(const Duration(milliseconds: 250), () {
-          if (!mounted) return;
-
-          Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(builder: (_) => VerifyPinScreen(pin: pin)),
-          );
+      if (pin.length == 4) {
+        setState(() {
+          isNavigating = true;
         });
+
+        Future.delayed(
+          const Duration(milliseconds: 250),
+          () {
+            if (!mounted) return;
+
+            Navigator.pushReplacement(
+              context,
+              MaterialPageRoute(
+                builder: (_) => VerifyPinScreen(
+                  pin: pin,
+                ),
+              ),
+            );
+          },
+        );
       }
     }
   }
 
+  // ============================================================
+  // DELETE DIGIT
+  // ============================================================
+
   void deleteDigit() {
-    if (pin.isNotEmpty) {
+    if (pin.isNotEmpty && !isNavigating) {
       setState(() {
-        pin = pin.substring(0, pin.length - 1);
+        pin = pin.substring(
+          0,
+          pin.length - 1,
+        );
       });
     }
   }
+
+  // ============================================================
+  // PIN CIRCLE
+  // ============================================================
 
   Widget buildPinCircle(int index) {
     return Container(
       width: 18,
       height: 18,
-      margin: const EdgeInsets.symmetric(horizontal: 8),
+      margin: const EdgeInsets.symmetric(
+        horizontal: 8,
+      ),
       decoration: BoxDecoration(
         shape: BoxShape.circle,
         color: index < pin.length ? Colors.white : Colors.transparent,
-        border: Border.all(color: Colors.white, width: 2),
+        border: Border.all(
+          color: Colors.white,
+          width: 2,
+        ),
       ),
     );
   }
 
+  // ============================================================
+  // NUMBER BUTTON
+  // ============================================================
+
   Widget numberButton(String number) {
     return InkWell(
       borderRadius: BorderRadius.circular(18),
-      onTap: () => addDigit(number),
+      onTap: isNavigating ? null : () => addDigit(number),
       child: Container(
         width: 82,
         height: 62,
@@ -78,9 +114,19 @@ class _CreatePinScreenState extends State<CreatePinScreen> {
     );
   }
 
-  Widget keypadRow(String first, String second, String third) {
+  // ============================================================
+  // KEYPAD ROW
+  // ============================================================
+
+  Widget keypadRow(
+    String first,
+    String second,
+    String third,
+  ) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 15),
+      padding: const EdgeInsets.only(
+        bottom: 15,
+      ),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceEvenly,
         children: [
@@ -92,24 +138,33 @@ class _CreatePinScreenState extends State<CreatePinScreen> {
     );
   }
 
+  // ============================================================
+  // BUILD
+  // ============================================================
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.background,
-
       body: SafeArea(
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 18),
+          padding: const EdgeInsets.symmetric(
+            horizontal: 22,
+            vertical: 18,
+          ),
           child: Column(
             children: [
               const SizedBox(height: 15),
 
+              // HEADER
               Row(
                 children: [
-                  Image.asset("assets/images/logo.JPG", width: 42, height: 42),
-
+                  Image.asset(
+                    "assets/images/logo.JPG",
+                    width: 42,
+                    height: 42,
+                  ),
                   const SizedBox(width: 10),
-
                   const Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
@@ -121,10 +176,12 @@ class _CreatePinScreenState extends State<CreatePinScreen> {
                           fontWeight: FontWeight.bold,
                         ),
                       ),
-
                       Text(
                         "Secure Mobile Data & Management System",
-                        style: TextStyle(color: Colors.white70, fontSize: 10),
+                        style: TextStyle(
+                          color: Colors.white70,
+                          fontSize: 10,
+                        ),
                       ),
                     ],
                   ),
@@ -133,6 +190,7 @@ class _CreatePinScreenState extends State<CreatePinScreen> {
 
               const SizedBox(height: 35),
 
+              // TITLE
               const Text(
                 "Create PIN",
                 style: TextStyle(
@@ -145,40 +203,54 @@ class _CreatePinScreenState extends State<CreatePinScreen> {
               const SizedBox(height: 8),
 
               const Text(
-                "Create your 6-digit security PIN",
-                style: TextStyle(color: Colors.white70, fontSize: 15),
+                "Create your 4-digit security PIN",
+                style: TextStyle(
+                  color: Colors.white70,
+                  fontSize: 15,
+                ),
               ),
 
               const SizedBox(height: 30),
 
+              // FOUR PIN CIRCLES
               Row(
                 mainAxisAlignment: MainAxisAlignment.center,
-                children: List.generate(6, (index) => buildPinCircle(index)),
+                children: List.generate(
+                  4,
+                  (index) => buildPinCircle(index),
+                ),
               ),
 
               const SizedBox(height: 40),
 
+              // KEYPAD
               keypadRow("1", "2", "3"),
               keypadRow("4", "5", "6"),
               keypadRow("7", "8", "9"),
+
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                 children: [
-                  const SizedBox(width: 82, height: 62),
-
+                  const SizedBox(
+                    width: 82,
+                    height: 62,
+                  ),
                   numberButton("0"),
-
-                  const SizedBox(width: 82, height: 62),
+                  const SizedBox(
+                    width: 82,
+                    height: 62,
+                  ),
                 ],
               ),
 
               const SizedBox(height: 20),
 
+              // DELETE BUTTON
               SizedBox(
                 width: double.infinity,
                 height: 52,
                 child: ElevatedButton.icon(
-                  onPressed: deleteDigit,
+                  onPressed: isNavigating ? null : deleteDigit,
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Colors.redAccent,
                     shape: RoundedRectangleBorder(
@@ -202,10 +274,14 @@ class _CreatePinScreenState extends State<CreatePinScreen> {
 
               const Spacer(),
 
+              // FOOTER
               const Text(
                 "Your PIN will be securely saved after verification.",
                 textAlign: TextAlign.center,
-                style: TextStyle(color: Colors.white54, fontSize: 12),
+                style: TextStyle(
+                  color: Colors.white54,
+                  fontSize: 12,
+                ),
               ),
 
               const SizedBox(height: 15),

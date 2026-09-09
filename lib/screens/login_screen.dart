@@ -23,12 +23,104 @@ class _LoginScreenState extends State<LoginScreen> {
   final _formKey = GlobalKey<FormState>();
 
   bool hidePassword = true;
+  bool isLoading = false;
 
   @override
   void dispose() {
     emailController.dispose();
     passwordController.dispose();
     super.dispose();
+  }
+
+  // ============================================================
+  // LOGIN
+  // ============================================================
+
+  Future<void> handleLogin() async {
+    // First check local form validation
+    if (!_formKey.currentState!.validate()) {
+      return;
+    }
+
+    // Prevent multiple login requests
+    if (isLoading) {
+      return;
+    }
+
+    setState(() {
+      isLoading = true;
+    });
+
+    try {
+      final email = emailController.text.trim();
+      final password = passwordController.text;
+
+      print('Attempting login for: $email');
+
+      // ========================================================
+      // CALL BACKEND
+      // ========================================================
+
+      final success = await authService.login(
+        email: email,
+        password: password,
+      );
+
+      if (!mounted) return;
+
+      // ========================================================
+      // LOGIN SUCCESS
+      // ========================================================
+
+      if (success) {
+        print('Login successful');
+
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(
+            builder: (_) => const EnterPinScreen(),
+          ),
+        );
+
+        return;
+      }
+
+      // ========================================================
+      // LOGIN FAILED
+      // ========================================================
+
+      setState(() {
+        isLoading = false;
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            "Invalid email or password.",
+          ),
+          backgroundColor: Colors.red,
+          duration: Duration(seconds: 2),
+        ),
+      );
+    } catch (e) {
+      print('Login screen error: $e');
+
+      if (!mounted) return;
+
+      setState(() {
+        isLoading = false;
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            "Could not connect to server: $e",
+          ),
+          backgroundColor: Colors.red,
+          duration: const Duration(seconds: 3),
+        ),
+      );
+    }
   }
 
   @override
@@ -42,9 +134,14 @@ class _LoginScreenState extends State<LoginScreen> {
 
           child: Form(
             key: _formKey,
+
             child: Column(
               children: [
+
+                // ==================================================
                 // TOP HEADER
+                // ==================================================
+
                 Row(
                   children: [
                     Image.asset(
@@ -70,19 +167,26 @@ class _LoginScreenState extends State<LoginScreen> {
 
                         Text(
                           "Secure Mobile Data & Management System",
-                          style: TextStyle(color: Colors.white70, fontSize: 10),
+                          style: TextStyle(
+                            color: Colors.white70,
+                            fontSize: 10,
+                          ),
                         ),
                       ],
                     ),
                   ],
                 ),
 
+                // ==================================================
                 // CENTER LOGIN CONTENT
+                // ==================================================
+
                 Expanded(
                   child: Center(
                     child: SingleChildScrollView(
                       child: Column(
                         children: [
+
                           const Text(
                             "Welcome Back",
                             style: TextStyle(
@@ -104,6 +208,10 @@ class _LoginScreenState extends State<LoginScreen> {
 
                           const SizedBox(height: 40),
 
+                          // ==================================================
+                          // EMAIL
+                          // ==================================================
+
                           CustomTextField(
                             controller: emailController,
                             hintText: "Email Address",
@@ -111,7 +219,8 @@ class _LoginScreenState extends State<LoginScreen> {
                             keyboardType: TextInputType.emailAddress,
 
                             validator: (value) {
-                              if (value == null || value.trim().isEmpty) {
+                              if (value == null ||
+                                  value.trim().isEmpty) {
                                 return "Email is required";
                               }
 
@@ -119,7 +228,9 @@ class _LoginScreenState extends State<LoginScreen> {
                                 r'^[\w\-.]+@([\w-]+\.)+[\w-]{2,4}$',
                               );
 
-                              if (!emailRegex.hasMatch(value.trim())) {
+                              if (!emailRegex.hasMatch(
+                                value.trim(),
+                              )) {
                                 return "Enter a valid email";
                               }
 
@@ -128,6 +239,10 @@ class _LoginScreenState extends State<LoginScreen> {
                           ),
 
                           const SizedBox(height: 20),
+
+                          // ==================================================
+                          // PASSWORD
+                          // ==================================================
 
                           CustomTextField(
                             controller: passwordController,
@@ -139,6 +254,7 @@ class _LoginScreenState extends State<LoginScreen> {
                               if (value == null || value.isEmpty) {
                                 return "Password is required";
                               }
+
                               return null;
                             },
 
@@ -150,53 +266,77 @@ class _LoginScreenState extends State<LoginScreen> {
                                 color: Colors.white,
                               ),
 
-                              onPressed: () {
-                                setState(() {
-                                  hidePassword = !hidePassword;
-                                });
-                              },
+                              onPressed: isLoading
+                                  ? null
+                                  : () {
+                                      setState(() {
+                                        hidePassword =
+                                            !hidePassword;
+                                      });
+                                    },
                             ),
                           ),
 
                           const SizedBox(height: 35),
 
-                          GradientButton(
-                            text: "Login",
+                          // ==================================================
+                          // LOGIN BUTTON
+                          // ==================================================
 
-                            onPressed: () {
-                              if (!_formKey.currentState!.validate()) {
-                                return;
-                              }
-
-                              Navigator.pushReplacement(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (_) => const EnterPinScreen(),
+                          if (isLoading)
+                            const Column(
+                              children: [
+                                CircularProgressIndicator(
+                                  color: Colors.white,
                                 ),
-                              );
-                            },
-                          ),
+
+                                SizedBox(height: 12),
+
+                                Text(
+                                  "Logging in...",
+                                  style: TextStyle(
+                                    color: Colors.white70,
+                                    fontSize: 13,
+                                  ),
+                                ),
+                              ],
+                            )
+                          else
+                            GradientButton(
+                              text: "Login",
+                              onPressed: handleLogin,
+                            ),
 
                           const SizedBox(height: 25),
 
+                          // ==================================================
+                          // SIGN UP
+                          // ==================================================
+
                           Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
+                            mainAxisAlignment:
+                                MainAxisAlignment.center,
 
                             children: [
                               const Text(
                                 "Don't have an account?",
-                                style: TextStyle(color: Colors.white70),
+                                style: TextStyle(
+                                  color: Colors.white70,
+                                ),
                               ),
 
                               TextButton(
-                                onPressed: () {
-                                  Navigator.pushReplacement(
-                                    context,
-                                    MaterialPageRoute(
-                                      builder: (_) => const SignupScreen(),
-                                    ),
-                                  );
-                                },
+                                onPressed: isLoading
+                                    ? null
+                                    : () {
+                                        Navigator.pushReplacement(
+                                          context,
+                                          MaterialPageRoute(
+                                            builder: (_) =>
+                                                const SignupScreen(),
+                                          ),
+                                        );
+                                      },
 
                                 child: const Text(
                                   "Sign Up",

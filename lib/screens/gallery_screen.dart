@@ -1,16 +1,39 @@
+
 import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
+
 import '../services/decryption_service.dart';
+import '../services/storage_service.dart';
 import 'image_viewer_screen.dart';
+import 'VideoViewerScreen.dart';
+
+enum MediaType { image, video }
+
+class GalleryMediaItem {
+  final String encryptedUri;
+  final Uint8List bytes;
+  final MediaType type;
+  final String fileName;
+
+  const GalleryMediaItem({
+    required this.encryptedUri,
+    required this.bytes,
+    required this.type,
+    required this.fileName,
+  });
+}
 
 class GalleryScreen extends StatefulWidget {
   final String folderName;
   final String folderUri;
+  final Uint8List dek;
 
   const GalleryScreen({
     super.key,
     required this.folderName,
     required this.folderUri,
+    required this.dek,
   });
 
   @override
@@ -18,127 +41,636 @@ class GalleryScreen extends StatefulWidget {
 }
 
 class _GalleryScreenState extends State<GalleryScreen> {
-  List<String> encryptedImages = [];
-
-  List<Uint8List> decryptedImages = [];
+  List<GalleryMediaItem> mediaItems = [];
 
   bool loading = true;
-
   bool selectionMode = false;
 
-  Set<int> selectedImages = {};
+  final Set<int> selectedItems = {};
 
   static const Color background = Color(0xff160047);
-
   static const Color primary = Color(0xff6A00FF);
-
   static const Color cyan = Color(0xff00FFD5);
-
-  // static const Color pink = Color(0xffD900FF);
-
   static const Color cardColor = Color(0xff220060);
 
   @override
   void initState() {
+    print('');
+    print('!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!');
+    print('GALLERY SCREEN CREATED');
+    print('FOLDER NAME: ${widget.folderName}');
+    print('FOLDER URI: ${widget.folderUri}');
+    print('!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!');
+
     super.initState();
-    loadImages();
+    loadMedia();
   }
 
-  Future<void> loadImages() async {
-    final images = await DecryptionService.getEncryptedImages(widget.folderUri);
+  // ============================================================
+  // LOAD ENCRYPTED MEDIA
+  // ============================================================
 
-    List<Uint8List> tempImages = [];
-
-    for (String image in images) {
-      final bytes = await DecryptionService.decryptImage(image);
-
-      if (bytes != null) {
-        tempImages.add(bytes);
-      }
-    }
-
+  Future<void> loadMedia() async {
     if (mounted) {
       setState(() {
-        encryptedImages = List<String>.from(images);
+        loading = true;
+      });
+    }
 
-        decryptedImages = tempImages;
+    try {
+      print('');
+      print('==============================================');
+      print('        DATASHIELD GALLERY DEBUG');
+      print('==============================================');
 
+      // ========================================================
+      // 1. GET SAVED PICTURES URI
+      // ========================================================
+
+      final picturesUri =
+          await StorageService.getPicturesFolderUri();
+
+      print('');
+      print('PICTURES URI:');
+      print(picturesUri ?? 'NULL');
+
+      // ========================================================
+      // 2. GET SAVED DCIM URI
+      // ========================================================
+
+      final dcimUri =
+          await StorageService.getDcimFolderUri();
+
+      print('');
+      print('DCIM URI:');
+      print(dcimUri ?? 'NULL');
+
+      // ========================================================
+      // 3. VALIDATE URIs
+      // ========================================================
+
+      if (picturesUri == null || picturesUri.isEmpty) {
+        print('');
+        print('!!! PICTURES URI IS MISSING !!!');
+      }
+
+      if (dcimUri == null || dcimUri.isEmpty) {
+        print('');
+        print('!!! DCIM URI IS MISSING !!!');
+      }
+
+      if ((picturesUri == null || picturesUri.isEmpty) &&
+          (dcimUri == null || dcimUri.isEmpty)) {
+        throw Exception(
+          'No protected folders are available.',
+        );
+      }
+
+      // ========================================================
+      // 4. GET ENCRYPTED MEDIA FROM BOTH ROOTS
+      // ========================================================
+
+      print('');
+      print('Calling native getEncryptedMedia()...');
+
+      final encryptedFiles =
+          await DecryptionService.getEncryptedMedia(
+        picturesUri: picturesUri,
+        dcimUri: dcimUri,
+      );
+
+      print('');
+      print('==============================================');
+      print(
+        'TOTAL ENCRYPTED FILES FOUND: '
+        '${encryptedFiles.length}',
+      );
+      print('==============================================');
+
+      // ========================================================
+      // 5. PRINT EVERY ENCRYPTED FILE
+      // ========================================================
+
+      for (int i = 0; i < encryptedFiles.length; i++) {
+        print('');
+        print('ENCRYPTED FILE [$i]');
+        print(encryptedFiles[i]);
+      }
+
+      // ========================================================
+      // 6. PROCESS EACH MEDIA FILE
+      // ========================================================
+
+      final List<GalleryMediaItem> loadedItems = [];
+
+      // Keep track of URIs already processed.
+      final Set<String> processedUris = {};
+
+      for (final rawItem in encryptedFiles) {
+        print('');
+        print('----------------------------------------------');
+        print('PROCESSING MEDIA ITEM');
+        print(rawItem);
+        print('----------------------------------------------');
+
+        // ======================================================
+        // VALIDATE MEDIA MAP
+        // ======================================================
+
+        if (rawItem is! Map) {
+          print('INVALID MEDIA ITEM: $rawItem');
+          continue;
+        }
+
+        // ======================================================
+        // GET ACTUAL URI
+        // ======================================================
+
+        final String? uri =
+            rawItem['uri']?.toString();
+
+        final String fileName =
+            rawItem['name']?.toString() ??
+            'encrypted_media.dsenc';
+
+        final String nativeType =
+            rawItem['type']?.toString() ??
+            'image';
+
+        if (uri == null || uri.isEmpty) {
+          print('!!! MEDIA URI IS MISSING !!!');
+          continue;
+        }
+
+        // ======================================================
+        // DUPLICATE CHECK
+        // ======================================================
+
+        if (processedUris.contains(uri)) {
+          print('');
+          print('!!! DUPLICATE FILE SKIPPED !!!');
+          print('URI: $uri');
+          continue;
+        }
+
+        processedUris.add(uri);
+
+        print('');
+        print('ACTUAL URI:');
+        print(uri);
+
+        print('');
+        print('FILE NAME:');
+        print(fileName);
+
+        print('');
+        print('NATIVE TYPE:');
+        print(nativeType);
+
+        // ======================================================
+        // DETERMINE MEDIA TYPE
+        // ======================================================
+
+        final mediaType =
+            _getMediaType(
+          fileName,
+          nativeType,
+        );
+
+        print('');
+        print('MEDIA TYPE: ${mediaType.name}');
+
+        // ======================================================
+        // VIDEOS
+        //
+        // DO NOT DECRYPT VIDEOS HERE.
+        //
+        // Large videos should not be loaded into Flutter memory.
+        // They will be decrypted to a temporary file only when
+        // the user opens them.
+        // ======================================================
+
+        if (mediaType == MediaType.video) {
+          print('');
+          print('VIDEO FOUND:');
+          print(fileName);
+
+          loadedItems.add(
+            GalleryMediaItem(
+              encryptedUri: uri,
+              bytes: Uint8List(0),
+              type: MediaType.video,
+              fileName: fileName,
+            ),
+          );
+
+          print('VIDEO ADDED TO GALLERY.');
+          continue;
+        }
+
+        // ======================================================
+        // DECRYPT IMAGE
+        // ======================================================
+
+        print('');
+        print('Calling decryptImage()...');
+        print('URI being sent to native code:');
+        print(uri);
+
+        final bytes =
+            await DecryptionService.decryptImage(
+          uri,
+          widget.dek,
+        );
+
+        if (bytes == null) {
+          print('');
+          print('!!! DECRYPTION FAILED !!!');
+          print('URI: $uri');
+          print('NAME: $fileName');
+          continue;
+        }
+
+        print('');
+        print(
+          'DECRYPTION SUCCESSFUL '
+          '(${bytes.length} bytes)',
+        );
+
+        // ======================================================
+        // ADD IMAGE TO GALLERY
+        // ======================================================
+
+        loadedItems.add(
+          GalleryMediaItem(
+            encryptedUri: uri,
+            bytes: bytes,
+            type: mediaType,
+            fileName: fileName,
+          ),
+        );
+      }
+
+      // ========================================================
+      // 7. SECOND SAFETY DEDUPLICATION
+      // ========================================================
+
+      final Map<String, GalleryMediaItem> uniqueItems = {};
+
+      for (final item in loadedItems) {
+        uniqueItems[item.encryptedUri] = item;
+      }
+
+      final List<GalleryMediaItem> finalItems =
+          uniqueItems.values.toList();
+
+      // ========================================================
+      // 8. FINAL RESULT
+      // ========================================================
+
+      print('');
+      print('==============================================');
+      print(
+        'MEDIA ITEMS LOADED: '
+        '${loadedItems.length}',
+      );
+      print(
+        'UNIQUE GALLERY ITEMS: '
+        '${finalItems.length}',
+      );
+      print('==============================================');
+
+      // ========================================================
+      // 9. PRINT FINAL UI ITEMS
+      // ========================================================
+
+      print('');
+      print('FINAL GALLERY ITEMS:');
+
+      for (int i = 0; i < finalItems.length; i++) {
+        print(
+          'UI [$i]: '
+          '${finalItems[i].fileName}',
+        );
+
+        print(
+          'TYPE [$i]: '
+          '${finalItems[i].type.name}',
+        );
+
+        print(
+          'URI [$i]: '
+          '${finalItems[i].encryptedUri}',
+        );
+      }
+
+      // ========================================================
+      // 10. UPDATE UI
+      // ========================================================
+
+      if (!mounted) return;
+
+      setState(() {
+        mediaItems = finalItems;
+        loading = false;
+      });
+    } catch (e, stackTrace) {
+      print('');
+      print('==============================================');
+      print('GALLERY ERROR');
+      print('==============================================');
+      print(e);
+      print(stackTrace);
+
+      if (!mounted) return;
+
+      setState(() {
         loading = false;
       });
     }
   }
 
+  // ============================================================
+  // DETECT MEDIA TYPE
+  // ============================================================
+
+  MediaType _getMediaType(
+    String fileName,
+    String nativeType,
+  ) {
+    // Native code already detected the type.
+    if (nativeType.toLowerCase() == 'video') {
+      return MediaType.video;
+    }
+
+    if (nativeType.toLowerCase() == 'image') {
+      return MediaType.image;
+    }
+
+    // ==========================================================
+    // FALLBACK: DETERMINE FROM FILE EXTENSION
+    // ==========================================================
+
+    final String originalName =
+        fileName.replaceFirst(
+      RegExp(
+        r'\.dsenc$',
+        caseSensitive: false,
+      ),
+      '',
+    );
+
+    final String extension =
+        originalName.contains('.')
+            ? originalName
+                .split('.')
+                .last
+                .toLowerCase()
+            : '';
+
+    const imageExtensions = {
+      'jpg',
+      'jpeg',
+      'png',
+      'webp',
+      'gif',
+      'bmp',
+      'heic',
+      'heif',
+    };
+
+    const videoExtensions = {
+      'mp4',
+      'mov',
+      'avi',
+      'mkv',
+      'webm',
+      '3gp',
+      'm4v',
+      '3g2',
+      'ts',
+    };
+
+    if (videoExtensions.contains(extension)) {
+      return MediaType.video;
+    }
+
+    if (imageExtensions.contains(extension)) {
+      return MediaType.image;
+    }
+
+    // Default to image.
+    return MediaType.image;
+  }
+
+  // ============================================================
+  // TOGGLE SELECTION
+  // ============================================================
+
   void toggleSelection(int index) {
     setState(() {
-      if (selectedImages.contains(index)) {
-        selectedImages.remove(index);
+      if (selectedItems.contains(index)) {
+        selectedItems.remove(index);
       } else {
-        selectedImages.add(index);
+        selectedItems.add(index);
       }
 
-      if (selectedImages.isEmpty) {
+      if (selectedItems.isEmpty) {
         selectionMode = false;
       }
     });
   }
 
-  Future<void> _deleteSelectedImages() async {
-    List<int> indexes = selectedImages.toList();
+  // ============================================================
+  // DELETE SELECTED MEDIA
+  // ============================================================
 
-    indexes.sort((a, b) => b.compareTo(a));
+  Future<void> _deleteSelectedMedia() async {
+    if (selectedItems.isEmpty) return;
 
-    List<String> filesToDelete = [];
+    // Sort descending so removing items does not change
+    // the indexes of items that still need to be removed.
+    final indexes =
+        selectedItems.toList()
+          ..sort(
+            (a, b) => b.compareTo(a),
+          );
 
-    for (int index in indexes) {
-      if (index < encryptedImages.length) {
-        filesToDelete.add(encryptedImages[index]);
+    final filesToDelete = <String>[];
+
+    for (final index in indexes) {
+      if (index >= 0 &&
+          index < mediaItems.length) {
+        filesToDelete.add(
+          mediaItems[index].encryptedUri,
+        );
       }
     }
 
-    // Update UI immediately
-    setState(() {
-      for (int index in indexes) {
-        encryptedImages.removeAt(index);
+    // ==========================================================
+    // REMOVE FROM UI FIRST
+    // ==========================================================
 
-        decryptedImages.removeAt(index);
+    setState(() {
+      for (final index in indexes) {
+        if (index >= 0 &&
+            index < mediaItems.length) {
+          mediaItems.removeAt(index);
+        }
       }
 
-      selectedImages.clear();
-
+      selectedItems.clear();
       selectionMode = false;
     });
 
-    // Delete actual files
-    for (String file in filesToDelete) {
-      await DecryptionService.deleteEncryptedImage(file);
+    // ==========================================================
+    // DELETE ACTUAL ENCRYPTED FILES
+    // ==========================================================
+
+    for (final encryptedUri in filesToDelete) {
+      try {
+        await DecryptionService.deleteEncryptedImage(
+          encryptedUri,
+        );
+
+        print(
+          'Deleted: $encryptedUri',
+        );
+      } catch (e) {
+        print(
+          'DELETE FAILED: $encryptedUri',
+        );
+        print(e);
+      }
     }
   }
+
+  // ============================================================
+  // OPEN IMAGE VIEWER
+  // ============================================================
+
+  void _openImageViewer(int selectedIndex) {
+    final imageItems =
+        mediaItems
+            .where(
+              (item) =>
+                  item.type == MediaType.image,
+            )
+            .toList();
+
+    if (selectedIndex < 0 ||
+        selectedIndex >= mediaItems.length) {
+      return;
+    }
+
+    final selectedItem =
+        mediaItems[selectedIndex];
+
+    final imageIndex =
+        imageItems.indexWhere(
+      (item) =>
+          item.encryptedUri ==
+          selectedItem.encryptedUri,
+    );
+
+    if (imageIndex == -1) return;
+
+    final images =
+        imageItems
+            .map(
+              (item) => item.bytes,
+            )
+            .toList();
+
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) =>
+            ImageViewerScreen(
+          images: images,
+          initialIndex: imageIndex,
+        ),
+      ),
+    );
+  }
+
+  // ============================================================
+  // OPEN VIDEO VIEWER
+  // ============================================================
+
+  void _openVideoViewer(int index) {
+    if (index < 0 ||
+        index >= mediaItems.length) {
+      return;
+    }
+
+    final item = mediaItems[index];
+
+    if (item.type != MediaType.video) {
+      return;
+    }
+
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) =>
+            VideoViewerScreen(
+          encryptedUri: item.encryptedUri,
+          fileName: item.fileName,
+          encryptionKey: widget.dek,
+        ),
+      ),
+    );
+  }
+
+  // ============================================================
+  // BUILD
+  // ============================================================
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: background,
 
+      // ========================================================
+      // APP BAR
+      // ========================================================
+
       appBar: AppBar(
         backgroundColor: Colors.transparent,
-
         elevation: 0,
-
         centerTitle: true,
 
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: Colors.white),
-
+          icon: const Icon(
+            Icons.arrow_back,
+            color: Colors.white,
+          ),
           onPressed: () {
             Navigator.pop(context);
           },
         ),
+
+        title: Text(
+          widget.folderName,
+          style: const TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.bold,
+            fontSize: 22,
+          ),
+        ),
+
         actions: [
-          // Select multiple images button
+          // ====================================================
+          // ENTER SELECTION MODE
+          // ====================================================
+
           if (!selectionMode)
             IconButton(
-              icon: const Icon(Icons.library_add_check, color: Colors.white),
-
+              icon: const Icon(
+                Icons.library_add_check,
+                color: Colors.white,
+              ),
               onPressed: () {
                 setState(() {
                   selectionMode = true;
@@ -146,181 +678,345 @@ class _GalleryScreenState extends State<GalleryScreen> {
               },
             ),
 
-          // Delete button appears after selecting images
-          if (selectionMode && selectedImages.isNotEmpty)
-            IconButton(
-              icon: const Icon(Icons.delete, color: Colors.red),
+          // ====================================================
+          // DELETE SELECTED
+          // ====================================================
 
-              onPressed: () {
-                _deleteSelectedImages();
-              },
+          if (selectionMode &&
+              selectedItems.isNotEmpty)
+            IconButton(
+              icon: const Icon(
+                Icons.delete,
+                color: Colors.red,
+              ),
+              onPressed:
+                  _deleteSelectedMedia,
             ),
 
-          // Exit selection mode without deleting
-          if (selectionMode && selectedImages.isEmpty)
-            IconButton(
-              icon: const Icon(Icons.close, color: Colors.white),
+          // ====================================================
+          // EXIT SELECTION MODE
+          // ====================================================
 
+          if (selectionMode &&
+              selectedItems.isEmpty)
+            IconButton(
+              icon: const Icon(
+                Icons.close,
+                color: Colors.white,
+              ),
               onPressed: () {
                 setState(() {
                   selectionMode = false;
-
-                  selectedImages.clear();
+                  selectedItems.clear();
                 });
               },
             ),
         ],
-
-        title: Text(
-          widget.folderName,
-
-          style: const TextStyle(
-            color: Colors.white,
-
-            fontWeight: FontWeight.bold,
-
-            fontSize: 22,
-          ),
-        ),
       ),
 
+      // ========================================================
+      // BODY
+      // ========================================================
+
       body: loading
-          ? Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
+          ? _loadingState()
+          : mediaItems.isEmpty
+              ? emptyState()
+              : _mediaGrid(),
+    );
+  }
 
-                children: const [
-                  CircularProgressIndicator(color: cyan),
+  // ============================================================
+  // LOADING
+  // ============================================================
 
-                  SizedBox(height: 20),
+  Widget _loadingState() {
+    return const Center(
+      child: Column(
+        mainAxisAlignment:
+            MainAxisAlignment.center,
+        children: [
+          CircularProgressIndicator(
+            color: cyan,
+          ),
 
-                  Text(
-                    "Decrypting images...",
+          SizedBox(height: 20),
 
-                    style: TextStyle(color: Colors.white70, fontSize: 16),
+          Text(
+            'Loading protected media...',
+            style: TextStyle(
+              color: Colors.white70,
+              fontSize: 16,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ============================================================
+  // MEDIA GRID
+  // ============================================================
+
+  Widget _mediaGrid() {
+    return RefreshIndicator(
+      onRefresh: loadMedia,
+
+      child: GridView.builder(
+        padding: const EdgeInsets.all(16),
+
+        itemCount: mediaItems.length,
+
+        gridDelegate:
+            const SliverGridDelegateWithFixedCrossAxisCount(
+          crossAxisCount: 3,
+          crossAxisSpacing: 10,
+          mainAxisSpacing: 10,
+          childAspectRatio: 1,
+        ),
+
+        itemBuilder: (context, index) {
+          final item =
+              mediaItems[index];
+
+          final isSelected =
+              selectedItems.contains(index);
+
+          return GestureDetector(
+            onTap: () {
+              if (selectionMode) {
+                toggleSelection(index);
+                return;
+              }
+
+              if (item.type ==
+                  MediaType.image) {
+                _openImageViewer(index);
+              } else {
+                _openVideoViewer(index);
+              }
+            },
+
+            onLongPress: () {
+              if (!selectionMode) {
+                setState(() {
+                  selectionMode = true;
+                  selectedItems.add(index);
+                });
+              }
+            },
+
+            child: Container(
+              decoration: BoxDecoration(
+                color: cardColor,
+
+                borderRadius:
+                    BorderRadius.circular(12),
+
+                border: Border.all(
+                  color: isSelected
+                      ? cyan
+                      : cyan.withValues(
+                          alpha: 0.3,
+                        ),
+                  width:
+                      isSelected ? 2 : 1,
+                ),
+
+                boxShadow: [
+                  BoxShadow(
+                    color: primary.withValues(
+                      alpha: 0.2,
+                    ),
+                    blurRadius: 8,
                   ),
                 ],
               ),
-            )
-          : decryptedImages.isEmpty
-          ? emptyState()
-          : GridView.builder(
-              padding: const EdgeInsets.all(20),
 
-              itemCount: decryptedImages.length,
+              child: ClipRRect(
+                borderRadius:
+                    BorderRadius.circular(11),
 
-              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: 3,
+                child: Stack(
+                  fit: StackFit.expand,
 
-                crossAxisSpacing: 12,
-
-                mainAxisSpacing: 12,
-              ),
-
-              itemBuilder: (context, index) {
-                return Stack(
                   children: [
-                    GestureDetector(
-                      onTap: () {
-                        if (selectionMode) {
-                          toggleSelection(index);
-                        } else {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (_) => ImageViewerScreen(
-                                images: decryptedImages,
-                                initialIndex: index,
-                              ),
+                    // ==================================================
+                    // IMAGE
+                    // ==================================================
+
+                    if (item.type ==
+                        MediaType.image)
+                      Image.memory(
+                        item.bytes,
+                        fit: BoxFit.cover,
+
+                        errorBuilder:
+                            (
+                          context,
+                          error,
+                          stackTrace,
+                        ) {
+                          return const Center(
+                            child: Icon(
+                              Icons.broken_image,
+                              color: Colors.white,
+                              size: 32,
                             ),
                           );
-                        }
-                      },
+                        },
+                      ),
 
-                      child: Container(
-                        decoration: BoxDecoration(
-                          color: cardColor,
-                          borderRadius: BorderRadius.circular(16),
-                          border: Border.all(color: cyan.withOpacity(.3)),
-                          boxShadow: [
-                            BoxShadow(
-                              color: primary.withOpacity(.2),
-                              blurRadius: 10,
-                            ),
-                          ],
+                    // ==================================================
+                    // VIDEO
+                    // ==================================================
+
+                    if (item.type ==
+                        MediaType.video)
+                      _videoPlaceholder(),
+
+                    // ==================================================
+                    // SELECTION OVERLAY
+                    // ==================================================
+
+                    if (isSelected)
+                      Container(
+                        color: Colors.black
+                            .withValues(
+                          alpha: 0.35,
                         ),
+                      ),
 
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(16),
-                          child: Image.memory(
-                            decryptedImages[index],
-                            fit: BoxFit.cover,
-                            errorBuilder: (context, error, stackTrace) {
-                              return const Center(
-                                child: Icon(
-                                  Icons.broken_image,
-                                  color: Colors.white,
-                                  size: 40,
-                                ),
-                              );
-                            },
+                    // ==================================================
+                    // VIDEO BADGE
+                    // ==================================================
+
+                    if (item.type ==
+                        MediaType.video)
+                      Positioned(
+                        bottom: 6,
+                        left: 6,
+
+                        child: Container(
+                          padding:
+                              const EdgeInsets.all(
+                            5,
+                          ),
+
+                          decoration:
+                              BoxDecoration(
+                            color: Colors.black
+                                .withValues(
+                              alpha: 0.6,
+                            ),
+                            shape:
+                                BoxShape.circle,
+                          ),
+
+                          child:
+                              const Icon(
+                            Icons.play_arrow,
+                            color:
+                                Colors.white,
+                            size: 20,
                           ),
                         ),
                       ),
-                    ),
-                    if (selectedImages.contains(index))
+
+                    // ==================================================
+                    // SELECTION CHECKMARK
+                    // ==================================================
+
+                    if (isSelected)
                       Positioned(
-                        right: 8,
-                        top: 8,
+                        right: 6,
+                        top: 6,
 
                         child: Container(
-                          decoration: const BoxDecoration(
-                            shape: BoxShape.circle,
-                            color: Colors.blue,
+                          padding:
+                              const EdgeInsets.all(
+                            2,
                           ),
 
-                          child: const Icon(
+                          decoration:
+                              const BoxDecoration(
+                            shape:
+                                BoxShape.circle,
+                            color: cyan,
+                          ),
+
+                          child:
+                              const Icon(
                             Icons.check,
-                            color: Colors.white,
-                            size: 22,
+                            color: background,
+                            size: 18,
                           ),
                         ),
                       ),
                   ],
-                );
-              },
+                ),
+              ),
             ),
+          );
+        },
+      ),
     );
   }
+
+  // ============================================================
+  // VIDEO PLACEHOLDER
+  // ============================================================
+
+  Widget _videoPlaceholder() {
+    return Container(
+      color: Colors.black26,
+
+      child: const Center(
+        child: Icon(
+          Icons.video_library,
+          color: cyan,
+          size: 45,
+        ),
+      ),
+    );
+  }
+
+  // ============================================================
+  // EMPTY STATE
+  // ============================================================
 
   Widget emptyState() {
     return Center(
       child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
+        mainAxisAlignment:
+            MainAxisAlignment.center,
 
         children: [
           Container(
-            padding: const EdgeInsets.all(25),
+            padding:
+                const EdgeInsets.all(25),
 
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-
-              color: primary.withOpacity(.25),
+              color: primary.withValues(
+                alpha: 0.25,
+              ),
             ),
 
-            child: const Icon(Icons.image_not_supported, color: cyan, size: 70),
+            child: const Icon(
+              Icons.image_not_supported,
+              color: cyan,
+              size: 70,
+            ),
           ),
 
           const SizedBox(height: 25),
 
           const Text(
-            "No decrypted images",
-
+            'No protected media',
             style: TextStyle(
               color: Colors.white,
-
               fontSize: 22,
-
               fontWeight: FontWeight.bold,
             ),
           ),
@@ -328,9 +1024,10 @@ class _GalleryScreenState extends State<GalleryScreen> {
           const SizedBox(height: 10),
 
           const Text(
-            "Encrypted images will appear here",
-
-            style: TextStyle(color: Colors.white70),
+            'Encrypted images and videos will appear here',
+            style: TextStyle(
+              color: Colors.white70,
+            ),
           ),
         ],
       ),

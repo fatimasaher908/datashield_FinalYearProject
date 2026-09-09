@@ -3,8 +3,8 @@ import 'package:google_fonts/google_fonts.dart';
 
 import '../services/storage_service.dart';
 import '../utils/app_colors.dart';
-import 'login_screen.dart';
 import 'enter_pin_screen.dart';
+import 'login_screen.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -21,24 +21,23 @@ class _SplashScreenState extends State<SplashScreen> {
   }
 
   Future<void> checkUser() async {
-    await Future.delayed(const Duration(seconds: 8));
+    // 2-3 seconds is optimal for splash UX (reduced from 8s)
+    await Future.delayed(const Duration(seconds: 2));
 
-    bool hasAccount = await StorageService.hasAccount();
-    bool loggedIn = await StorageService.isLoggedIn();
+    final bool hasAccount = await StorageService.hasAccount();
+    final bool loggedIn = await StorageService.isLoggedIn();
+    final String? token = await StorageService.getJwtToken();
 
     if (!mounted) return;
 
-    if (!hasAccount) {
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(builder: (_) => const LoginScreen()),
-      );
-    } else if (loggedIn) {
+    // Check if user has an account AND an active loggedIn session AND a valid JWT token
+    if (hasAccount && loggedIn && token != null && token.isNotEmpty) {
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(builder: (_) => const EnterPinScreen()),
       );
     } else {
+      // Direct to LoginScreen if missing credentials or logged out
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(builder: (_) => const LoginScreen()),

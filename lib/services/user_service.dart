@@ -1,41 +1,58 @@
-import '../services/storage_service.dart';
+import 'dart:convert';
+import 'dart:io';
 
-class AuthService {
-  // Signup
-  Future<bool> signup({
-    required String name,
-    required String email,
-    required String password,
-  }) async {
-    // Temporary local signup
-    await StorageService.saveAccount(true);
-    return true;
+import 'package:flutter/services.dart';
+import 'package:http/io_client.dart';
+
+import 'storage_service.dart';
+
+class UserService {
+  static const String baseUrl = 'https://192.168.18.46:8383';
+
+  Future<IOClient> _createSecureClient() async {
+    final securityContext = SecurityContext(withTrustedRoots: true);
+
+    final rootCa = await rootBundle.load('assets/certs/rootca.pem');
+    securityContext.setTrustedCertificatesBytes(rootCa.buffer.asUint8List());
+
+    final httpClient = HttpClient(context: securityContext);
+    return IOClient(httpClient);
   }
 
-  // Login
-  Future<bool> login({required String email, required String password}) async {
-    // Temporary local login
-    return true;
-  }
+  /// Fetch user profile details
+  Future<Map<String, dynamic>?> getUserProfile() async {
+    IOClient? client;
 
-  // Check if account exists
-  Future<bool> hasAccount() async {
-    return await StorageService.hasAccount();
-  }
+    try {
+      final userId = await StorageService.getUserId();
+      final token = await StorageService.getJwtToken();
 
-  // Check login status
-  Future<bool> isLoggedIn() async {
-    return await StorageService.isLoggedIn();
-  }
+      if (userId == null || token == null) {
+        print("Missing user ID or auth token");
+        return null;
+      }
 
-  // Logout
-  Future<void> logout() async {
-    await StorageService.logout();
-  }
+      client = await _createSecureClient();
+      final url = Uri.parse('$baseUrl/user/$userId');
 
-  Future<bool> verifyPin(String enteredPin) async {
-    String savedPin = await StorageService.getPin();
+      final response = await client.get(
+        url,
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+      );
 
-    return enteredPin == savedPin;
+      if (response.statusCode == 200) {
+        return jsonDecode(response.body);
+      }
+
+      return null;
+    } catch (e) {
+      print("Error fetching profile: $e");
+      return null;
+    } finally {
+      client?.close();
+    }
   }
 }
