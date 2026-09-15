@@ -15,6 +15,10 @@ object EncryptionEngine {
 
     private const val TAG = "DataShield"
 
+    // ============================================================
+    // ENCRYPTED FILE FORMAT
+    // ============================================================
+
     // DataShield encrypted file header
     private const val HEADER = "DS01"
 
@@ -24,8 +28,12 @@ object EncryptionEngine {
     // AES-GCM authentication tag length
     private const val TAG_LENGTH = 128
 
+    // Authentication tag = 128 bits = 16 bytes
+    private const val AUTH_TAG_BYTES = 16
+
     // Buffer used for streaming file encryption
     private const val BUFFER_SIZE = 64 * 1024
+
 
     /**
      * Encrypt any supported file using AES-GCM.
@@ -35,7 +43,7 @@ object EncryptionEngine {
      * DS01
      * + 12-byte IV
      * + encrypted data
-     * + GCM authentication tag
+     * + 16-byte GCM authentication tag
      *
      * Output filename:
      *
@@ -89,8 +97,10 @@ object EncryptionEngine {
                 return null
             }
 
-            // AES-128/192/256 are supported.
-            // DataShield expects AES-256.
+            // ====================================================
+            // VALIDATE AES-256 KEY
+            // ====================================================
+
             if (keyBytes.size != 32) {
 
                 Log.e(
@@ -163,6 +173,16 @@ object EncryptionEngine {
                 ByteArray(IV_LENGTH)
 
             SecureRandom().nextBytes(iv)
+
+            // IV is not secret, so it is safe to log for debugging.
+            Log.d(
+                TAG,
+                "Encryption IV: ${
+                    iv.joinToString(" ") {
+                        "%02X".format(it)
+                    }
+                }"
+            )
 
             // ====================================================
             // CREATE AES-GCM CIPHER
@@ -261,6 +281,14 @@ object EncryptionEngine {
             }
 
             // ====================================================
+            // TRACK PLAINTEXT BYTES
+            // ====================================================
+
+            // This must be outside the stream block so that we can
+            // verify the final encrypted file size afterwards.
+            var totalRead = 0L
+
+            // ====================================================
             // STREAM ENCRYPTION
             // ====================================================
 
@@ -313,14 +341,10 @@ object EncryptionEngine {
                         val buffer =
                             ByteArray(BUFFER_SIZE)
 
-                        var totalRead = 0L
-
                         while (true) {
 
                             val bytesRead =
-                                bufferedInput.read(
-                                    buffer
-                                )
+                                bufferedInput.read(buffer)
 
                             if (bytesRead == -1) {
                                 break
@@ -349,17 +373,69 @@ object EncryptionEngine {
             }
 
             // ====================================================
-            // VERIFY ENCRYPTED FILE
+            // VERIFY ENCRYPTED FILE SIZE
+            // ====================================================
+
+            /*
+             * Expected format:
+             *
+             * DS01 header = 4 bytes
+             * IV          = 12 bytes
+             * Ciphertext  = same size as plaintext
+             * GCM tag     = 16 bytes
+             *
+             * Therefore:
+             *
+             * encrypted size = plaintext size + 4 + 12 + 16
+             * encrypted size = plaintext size + 32
+             */
+
+            val expectedEncryptedSize =
+                totalRead +
+                        HEADER.toByteArray(Charsets.UTF_8).size +
+                        IV_LENGTH +
+                        AUTH_TAG_BYTES
+
+            val actualEncryptedSize =
+                encryptedFile.length()
+
+            Log.d(
+                TAG,
+                "Plaintext bytes read: $totalRead"
+            )
+
+            Log.d(
+                TAG,
+                "Expected encrypted size: $expectedEncryptedSize"
+            )
+
+            Log.d(
+                TAG,
+                "Actual encrypted size: $actualEncryptedSize"
+            )
+
+            // ====================================================
+            // FILE SIZE MISMATCH
             // ====================================================
 
             if (
                 !encryptedFile.exists() ||
-                encryptedFile.length() <= 0
+                actualEncryptedSize != expectedEncryptedSize
             ) {
 
                 Log.e(
                     TAG,
-                    "Encrypted file was not created correctly: $encryptedName"
+                    "ENCRYPTED FILE SIZE MISMATCH!"
+                )
+
+                Log.e(
+                    TAG,
+                    "Expected: $expectedEncryptedSize"
+                )
+
+                Log.e(
+                    TAG,
+                    "Actual: $actualEncryptedSize"
                 )
 
                 encryptedFile.delete()
@@ -367,6 +443,10 @@ object EncryptionEngine {
 
                 return null
             }
+
+            // ====================================================
+            // ENCRYPTION SUCCESSFUL
+            // ====================================================
 
             Log.d(
                 TAG,
@@ -380,7 +460,7 @@ object EncryptionEngine {
 
             Log.d(
                 TAG,
-                "Encrypted size: ${encryptedFile.length()} bytes"
+                "Encrypted size: $actualEncryptedSize bytes"
             )
 
             return encryptedFile
@@ -393,9 +473,9 @@ object EncryptionEngine {
                 e
             )
 
-            // ----------------------------------------------------
+            // ====================================================
             // DELETE PARTIAL ENCRYPTED FILE
-            // ----------------------------------------------------
+            // ====================================================
 
             try {
 
@@ -413,6 +493,7 @@ object EncryptionEngine {
             return null
         }
     }
+
 
     /**
      * Backwards-compatible image encryption method.

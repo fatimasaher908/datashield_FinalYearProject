@@ -1,16 +1,19 @@
 package com.example.datashield_fyp
 
 import android.content.Context
+import android.graphics.Bitmap
+import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.util.Log
 import java.io.BufferedInputStream
 import java.io.BufferedOutputStream
+import java.io.ByteArrayOutputStream
 import java.io.File
+import java.io.FileInputStream
 import javax.crypto.Cipher
 import javax.crypto.CipherInputStream
 import javax.crypto.spec.GCMParameterSpec
 import javax.crypto.spec.SecretKeySpec
-import java.io.FileInputStream
 
 object DecryptionEngine {
 
@@ -34,13 +37,6 @@ object DecryptionEngine {
 
     // ============================================================
     // DECRYPT IMAGE
-    //
-    // IMPORTANT:
-    // This version accepts Uri directly.
-    //
-    // We intentionally DO NOT use DocumentFile.fromSingleUri()
-    // here because some SAF providers can return a null cursor
-    // when DocumentFile queries a child document.
     // ============================================================
 
     fun decryptImage(
@@ -51,10 +47,7 @@ object DecryptionEngine {
 
         return try {
 
-            Log.d(
-                TAG,
-                "Decrypting image URI: $encryptedUri"
-            )
+            Log.d(TAG, "Decrypting image URI: $encryptedUri")
 
             // ----------------------------------------------------
             // VALIDATE KEY
@@ -71,7 +64,7 @@ object DecryptionEngine {
             }
 
             // ----------------------------------------------------
-            // OPEN ENCRYPTED FILE DIRECTLY
+            // READ ENCRYPTED FILE
             // ----------------------------------------------------
 
             val encryptedData =
@@ -84,12 +77,7 @@ object DecryptionEngine {
 
                         Log.e(
                             TAG,
-                            "Unable to open encrypted URI:"
-                        )
-
-                        Log.e(
-                            TAG,
-                            encryptedUri.toString()
+                            "Unable to open encrypted URI: $encryptedUri"
                         )
 
                         return null
@@ -101,24 +89,21 @@ object DecryptionEngine {
             )
 
             // ----------------------------------------------------
-            // CHECK MINIMUM SIZE
+            // MINIMUM SIZE
             // ----------------------------------------------------
 
-            if (
-                encryptedData.size <
-                MIN_ENCRYPTED_SIZE
-            ) {
+            if (encryptedData.size < MIN_ENCRYPTED_SIZE) {
 
                 Log.e(
                     TAG,
-                    "Encrypted file is corrupted or too short"
+                    "Encrypted file is too small"
                 )
 
                 return null
             }
 
             // ----------------------------------------------------
-            // CHECK DATASHIELD HEADER
+            // CHECK HEADER
             // ----------------------------------------------------
 
             val header =
@@ -133,17 +118,7 @@ object DecryptionEngine {
 
                 Log.e(
                     TAG,
-                    "Invalid DataShield file format"
-                )
-
-                Log.e(
-                    TAG,
-                    "Expected header: $HEADER"
-                )
-
-                Log.e(
-                    TAG,
-                    "Actual header: $header"
+                    "Invalid DataShield header: $header"
                 )
 
                 return null
@@ -160,7 +135,7 @@ object DecryptionEngine {
                 )
 
             // ----------------------------------------------------
-            // EXTRACT CIPHERTEXT + GCM TAG
+            // EXTRACT CIPHERTEXT + TAG
             // ----------------------------------------------------
 
             val cipherText =
@@ -170,7 +145,7 @@ object DecryptionEngine {
                 )
 
             // ----------------------------------------------------
-            // CREATE AES-256 KEY
+            // AES-256 KEY
             // ----------------------------------------------------
 
             val secretKey =
@@ -180,7 +155,7 @@ object DecryptionEngine {
                 )
 
             // ----------------------------------------------------
-            // CREATE AES-GCM CIPHER
+            // AES-GCM
             // ----------------------------------------------------
 
             val cipher =
@@ -205,9 +180,7 @@ object DecryptionEngine {
             // ----------------------------------------------------
 
             val originalBytes =
-                cipher.doFinal(
-                    cipherText
-                )
+                cipher.doFinal(cipherText)
 
             Log.d(
                 TAG,
@@ -225,17 +198,7 @@ object DecryptionEngine {
 
             Log.e(
                 TAG,
-                "Image decryption failed."
-            )
-
-            Log.e(
-                TAG,
-                "URI: $encryptedUri"
-            )
-
-            Log.e(
-                TAG,
-                "Reason: ${e.message}",
+                "Image decryption failed.",
                 e
             )
 
@@ -245,18 +208,11 @@ object DecryptionEngine {
 
 
     // ============================================================
-    // DECRYPT TO TEMPORARY FILE
+    // DECRYPT VIDEO TO TEMP FILE
     //
-    // Used for videos.
+    // EXISTING WORKING METHOD
     //
-    // The encrypted file is never modified.
-    //
-    // Output:
-    //
-    // cache/datashield_decrypted/
-    //
-    // The original extension is preserved so video_player can
-    // recognize the media format.
+    // This method is intentionally preserved.
     // ============================================================
 
     fun decryptToFile(
@@ -272,12 +228,17 @@ object DecryptionEngine {
 
             Log.d(
                 TAG,
-                "Starting streaming decryption."
+                "========== VIDEO DECRYPTION START =========="
             )
 
             Log.d(
                 TAG,
                 "Encrypted URI: $encryptedUri"
+            )
+
+            Log.d(
+                TAG,
+                "Decryption key size: ${keyBytes.size} bytes"
             )
 
             // ----------------------------------------------------
@@ -295,13 +256,42 @@ object DecryptionEngine {
             }
 
             // ----------------------------------------------------
-            // GET ORIGINAL NAME
+            // DETERMINE ORIGINAL FILE NAME
             // ----------------------------------------------------
 
-            val safeOriginalName =
+            var safeOriginalName =
                 originalName
-                    ?.takeIf { it.isNotBlank() }
+                    ?.trim()
+                    ?.takeIf { it.isNotEmpty() }
                     ?: "datashield_media"
+
+            // ----------------------------------------------------
+            // REMOVE .DSENC
+            // ----------------------------------------------------
+
+            if (
+                safeOriginalName
+                    .lowercase()
+                    .endsWith(".dsenc")
+            ) {
+
+                safeOriginalName =
+                    safeOriginalName
+                        .dropLast(".dsenc".length)
+            }
+
+            // ----------------------------------------------------
+            // SAFETY AGAINST PATH TRAVERSAL
+            // ----------------------------------------------------
+
+            safeOriginalName =
+                File(safeOriginalName).name
+
+            if (safeOriginalName.isBlank()) {
+
+                safeOriginalName =
+                    "datashield_media.mp4"
+            }
 
             // ----------------------------------------------------
             // CREATE CACHE DIRECTORY
@@ -327,7 +317,7 @@ object DecryptionEngine {
             }
 
             // ----------------------------------------------------
-            // CREATE UNIQUE TEMP FILE
+            // CREATE TEMPORARY FILE
             // ----------------------------------------------------
 
             outputFile =
@@ -347,17 +337,14 @@ object DecryptionEngine {
             )
 
             // ----------------------------------------------------
-            // OPEN ENCRYPTED INPUT DIRECTLY
-            //
-            // IMPORTANT:
-            // No DocumentFile query here.
+            // OPEN ENCRYPTED FILE
             // ----------------------------------------------------
 
-            val inputStream =
+            val rawInput =
                 context.contentResolver
                     .openInputStream(encryptedUri)
 
-            if (inputStream == null) {
+            if (rawInput == null) {
 
                 Log.e(
                     TAG,
@@ -367,11 +354,11 @@ object DecryptionEngine {
                 return null
             }
 
-            inputStream.use { rawInput ->
+            rawInput.use { stream ->
 
                 val input =
                     BufferedInputStream(
-                        rawInput,
+                        stream,
                         BUFFER_SIZE
                     )
 
@@ -393,11 +380,16 @@ object DecryptionEngine {
                         Charsets.UTF_8
                     )
 
+                Log.d(
+                    TAG,
+                    "Decryption header: $header"
+                )
+
                 if (header != HEADER) {
 
                     Log.e(
                         TAG,
-                        "Invalid DataShield header: $header"
+                        "Invalid DataShield header"
                     )
 
                     return null
@@ -415,8 +407,16 @@ object DecryptionEngine {
                     iv
                 )
 
+                Log.d(
+                    TAG,
+                    "Decryption IV: " +
+                            iv.joinToString(" ") {
+                                "%02X".format(it)
+                            }
+                )
+
                 // ------------------------------------------------
-                // CREATE AES-GCM CIPHER
+                // AES-256 KEY
                 // ------------------------------------------------
 
                 val secretKey =
@@ -424,6 +424,10 @@ object DecryptionEngine {
                         keyBytes,
                         "AES"
                     )
+
+                // ------------------------------------------------
+                // AES-GCM
+                // ------------------------------------------------
 
                 val cipher =
                     Cipher.getInstance(
@@ -488,7 +492,7 @@ object DecryptionEngine {
 
                         Log.d(
                             TAG,
-                            "Decrypted $totalDecrypted bytes"
+                            "Decrypted size: $totalDecrypted bytes"
                         )
                     }
                 }
@@ -525,72 +529,87 @@ object DecryptionEngine {
             )
 
             Log.d(
-    TAG,
-    "Output size: ${outputFile.length()} bytes"
-)
+                TAG,
+                "Output size: ${outputFile.length()} bytes"
+            )
 
-// ============================================================
-// VERIFY DECRYPTED MP4 HEADER
-// ============================================================
+            // ----------------------------------------------------
+            // VERIFY MP4 HEADER
+            // ----------------------------------------------------
 
-try {
+            try {
 
-    FileInputStream(outputFile).use { input ->
+                FileInputStream(
+                    outputFile
+                ).use { fileInput ->
 
-        val header = ByteArray(32)
+                    val header =
+                        ByteArray(32)
 
-        val bytesRead = input.read(header)
+                    val bytesRead =
+                        fileInput.read(header)
 
-        if (bytesRead > 0) {
+                    if (bytesRead > 0) {
 
-            val hex =
-                header
-                    .copyOf(bytesRead)
-                    .joinToString(" ") {
-                        "%02X".format(it)
+                        val hex =
+                            header
+                                .copyOf(bytesRead)
+                                .joinToString(" ") {
+                                    "%02X".format(it)
+                                }
+
+                        Log.d(
+                            TAG,
+                            "First decrypted bytes: $hex"
+                        )
+
+                        if (bytesRead >= 8) {
+
+                            val boxType =
+                                String(
+                                    header,
+                                    4,
+                                    4,
+                                    Charsets.US_ASCII
+                                )
+
+                            Log.d(
+                                TAG,
+                                "MP4 box type at offset 4: $boxType"
+                            )
+
+                            if (boxType != "ftyp") {
+
+                                Log.w(
+                                    TAG,
+                                    "Unexpected MP4 box type: $boxType"
+                                )
+                            }
+                        }
                     }
+                }
+
+            } catch (e: Exception) {
+
+                Log.e(
+                    TAG,
+                    "Could not inspect decrypted file",
+                    e
+                )
+            }
 
             Log.d(
                 TAG,
-                "First decrypted bytes: $hex"
+                "========== VIDEO DECRYPTION SUCCESS =========="
             )
 
-            if (bytesRead >= 8) {
-
-                val boxType =
-                    String(
-                        header,
-                        4,
-                        4,
-                        Charsets.US_ASCII
-                    )
-
-                Log.d(
-                    TAG,
-                    "MP4 box type at offset 4: $boxType"
-                )
-            }
-        }
-    }
-
-} catch (e: Exception) {
-
-    Log.e(
-        TAG,
-        "Could not inspect decrypted file",
-        e
-    )
-}
-
-return outputFile.absolutePath
-
-      
+            return outputFile.absolutePath
 
         } catch (e: Exception) {
 
             Log.e(
                 TAG,
-                "Streaming decryption failed.",
+                "========== VIDEO DECRYPTION FAILED ==========",
                 e
             )
 
@@ -607,6 +626,434 @@ return outputFile.absolutePath
 
             return null
         }
+    }
+
+
+// ============================================================
+// GENERATE VIDEO THUMBNAIL + KEEP DECRYPTED VIDEO
+//
+// IMPORTANT:
+//
+// The video is decrypted ONLY ONCE.
+//
+// Flow:
+//
+// encrypted .dsenc
+//       ↓
+// decryptToFile()
+//       ↓
+// temporary .mp4
+//       ↓
+// MediaMetadataRetriever
+//       ├── thumbnail JPEG
+//       │
+//       └── KEEP temporary .mp4
+//
+// The method returns BOTH:
+//
+// "thumbnailBytes" → JPEG thumbnail for Flutter
+// "videoPath"     → decrypted MP4 for playback
+//
+// The temporary video is intentionally NOT deleted here.
+// ============================================================
+
+fun generateVideoThumbnail(
+    context: Context,
+    encryptedUri: Uri,
+    originalName: String?,
+    keyBytes: ByteArray
+): Map<String, Any>? {
+
+    var temporaryVideoPath: String? = null
+    var bitmap: Bitmap? = null
+    var scaledBitmap: Bitmap? = null
+
+    val retriever =
+        MediaMetadataRetriever()
+
+    try {
+
+        Log.d(
+            TAG,
+            "========== VIDEO THUMBNAIL + DECRYPT START =========="
+        )
+
+        Log.d(
+            TAG,
+            "Encrypted URI: $encryptedUri"
+        )
+
+        // ----------------------------------------------------
+        // VALIDATE KEY
+        // ----------------------------------------------------
+
+        if (keyBytes.size != 32) {
+
+            Log.e(
+                TAG,
+                "Invalid AES-256 key size for thumbnail: ${keyBytes.size}"
+            )
+
+            return null
+        }
+
+        // ----------------------------------------------------
+        // DECRYPT VIDEO ONCE
+        // ----------------------------------------------------
+
+        temporaryVideoPath =
+            decryptToFile(
+                context,
+                encryptedUri,
+                originalName,
+                keyBytes
+            )
+
+        if (temporaryVideoPath.isNullOrEmpty()) {
+
+            Log.e(
+                TAG,
+                "Could not decrypt video for thumbnail."
+            )
+
+            return null
+        }
+
+        val temporaryVideo =
+            File(
+                temporaryVideoPath
+            )
+
+        if (!temporaryVideo.exists() ||
+            temporaryVideo.length() <= 0
+        ) {
+
+            Log.e(
+                TAG,
+                "Temporary decrypted video is invalid."
+            )
+
+            temporaryVideo.delete()
+            temporaryVideoPath = null
+
+            return null
+        }
+
+        Log.d(
+            TAG,
+            "Decrypted video created successfully."
+        )
+
+        Log.d(
+            TAG,
+            "Temporary video path:"
+        )
+
+        Log.d(
+            TAG,
+            temporaryVideo.absolutePath
+        )
+
+        Log.d(
+            TAG,
+            "Temporary video size: ${temporaryVideo.length()} bytes"
+        )
+
+        // ----------------------------------------------------
+        // SET VIDEO SOURCE
+        // ----------------------------------------------------
+
+        retriever.setDataSource(
+            temporaryVideo.absolutePath
+        )
+
+        // ----------------------------------------------------
+        // EXTRACT FIRST KEYFRAME
+        // ----------------------------------------------------
+
+        bitmap =
+            retriever.getFrameAtTime(
+                0L,
+                MediaMetadataRetriever
+                    .OPTION_CLOSEST_SYNC
+            )
+
+        if (bitmap == null) {
+
+            Log.e(
+                TAG,
+                "MediaMetadataRetriever returned NULL frame."
+            )
+
+            temporaryVideo.delete()
+            temporaryVideoPath = null
+
+            return null
+        }
+
+        Log.d(
+            TAG,
+            "Video frame extracted successfully."
+        )
+
+        Log.d(
+            TAG,
+            "Original thumbnail size: " +
+                    "${bitmap.width}x${bitmap.height}"
+        )
+
+        // ----------------------------------------------------
+        // SCALE THUMBNAIL
+        // ----------------------------------------------------
+
+        scaledBitmap =
+            scaleBitmapForThumbnail(
+                bitmap,
+                600
+            )
+
+        // ----------------------------------------------------
+        // COMPRESS TO JPEG
+        // ----------------------------------------------------
+
+        val outputStream =
+            ByteArrayOutputStream()
+
+        scaledBitmap.compress(
+            Bitmap.CompressFormat.JPEG,
+            85,
+            outputStream
+        )
+
+        val thumbnailBytes =
+            outputStream.toByteArray()
+
+        outputStream.close()
+
+        Log.d(
+            TAG,
+            "Thumbnail JPEG size: " +
+                    "${thumbnailBytes.size} bytes"
+        )
+
+        if (thumbnailBytes.isEmpty()) {
+
+            Log.e(
+                TAG,
+                "Generated thumbnail is empty."
+            )
+
+            temporaryVideo.delete()
+            temporaryVideoPath = null
+
+            return null
+        }
+
+        // ----------------------------------------------------
+        // IMPORTANT
+        //
+        // DO NOT DELETE THE DECRYPTED VIDEO.
+        //
+        // Gallery needs this exact file later when the user
+        // taps the video.
+        // ----------------------------------------------------
+
+        Log.d(
+            TAG,
+            "Keeping decrypted video for playback."
+        )
+
+        Log.d(
+            TAG,
+            "Video path returned to Flutter:"
+        )
+
+        Log.d(
+            TAG,
+            temporaryVideo.absolutePath
+        )
+
+        Log.d(
+            TAG,
+            "========== VIDEO THUMBNAIL + DECRYPT SUCCESS =========="
+        )
+
+        // ----------------------------------------------------
+        // RETURN BOTH RESULTS
+        // ----------------------------------------------------
+
+        return mapOf(
+            "thumbnailBytes" to thumbnailBytes,
+            "videoPath" to temporaryVideo.absolutePath
+        )
+
+    } catch (e: Exception) {
+
+        Log.e(
+            TAG,
+            "========== VIDEO THUMBNAIL + DECRYPT FAILED ==========",
+            e
+        )
+
+        // ----------------------------------------------------
+        // DELETE ONLY IF THE OPERATION FAILED.
+        //
+        // If thumbnail generation succeeds, the file is kept.
+        // ----------------------------------------------------
+
+        if (!temporaryVideoPath.isNullOrEmpty()) {
+
+            try {
+
+                val temporaryFile =
+                    File(
+                        temporaryVideoPath
+                    )
+
+                if (temporaryFile.exists()) {
+
+                    temporaryFile.delete()
+
+                    Log.d(
+                        TAG,
+                        "Deleted temporary video after failure."
+                    )
+                }
+
+            } catch (deleteException: Exception) {
+
+                Log.e(
+                    TAG,
+                    "Failed to delete temporary video after failure.",
+                    deleteException
+                )
+            }
+        }
+
+        return null
+
+    } finally {
+
+        // ----------------------------------------------------
+        // RELEASE RETRIEVER
+        // ----------------------------------------------------
+
+        try {
+
+            retriever.release()
+
+        } catch (e: Exception) {
+
+            Log.e(
+                TAG,
+                "Failed to release MediaMetadataRetriever",
+                e
+            )
+        }
+
+        // ----------------------------------------------------
+        // RECYCLE SCALED BITMAP IF IT IS A DIFFERENT OBJECT
+        // ----------------------------------------------------
+
+        try {
+
+            if (
+                scaledBitmap != null &&
+                scaledBitmap !== bitmap &&
+                !scaledBitmap.isRecycled
+            ) {
+                scaledBitmap.recycle()
+            }
+
+        } catch (e: Exception) {
+
+            Log.e(
+                TAG,
+                "Failed to recycle scaled thumbnail bitmap",
+                e
+            )
+        }
+
+        // ----------------------------------------------------
+        // RECYCLE ORIGINAL BITMAP
+        // ----------------------------------------------------
+
+        try {
+
+            if (
+                bitmap != null &&
+                !bitmap.isRecycled
+            ) {
+                bitmap.recycle()
+            }
+
+        } catch (e: Exception) {
+
+            Log.e(
+                TAG,
+                "Failed to recycle thumbnail bitmap",
+                e
+            )
+        }
+
+        // ----------------------------------------------------
+        // DO NOT DELETE temporaryVideoPath HERE.
+        //
+        // On SUCCESS:
+        //     the decrypted MP4 must remain available.
+        //
+        // On FAILURE:
+        //     the catch block already deletes it.
+        // ----------------------------------------------------
+    }
+}
+
+
+    // ============================================================
+    // SCALE BITMAP FOR THUMBNAIL
+    // ============================================================
+
+    private fun scaleBitmapForThumbnail(
+        bitmap: Bitmap,
+        maxDimension: Int
+    ): Bitmap {
+
+        val width =
+            bitmap.width
+
+        val height =
+            bitmap.height
+
+        if (
+            width <= maxDimension &&
+            height <= maxDimension
+        ) {
+
+            return bitmap
+        }
+
+        val scale =
+            minOf(
+                maxDimension.toFloat() / width,
+                maxDimension.toFloat() / height
+            )
+
+        val newWidth =
+            (width * scale)
+                .toInt()
+                .coerceAtLeast(1)
+
+        val newHeight =
+            (height * scale)
+                .toInt()
+                .coerceAtLeast(1)
+
+        return Bitmap.createScaledBitmap(
+            bitmap,
+            newWidth,
+            newHeight,
+            true
+        )
     }
 
 

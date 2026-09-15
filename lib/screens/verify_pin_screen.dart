@@ -137,16 +137,10 @@ class _VerifyPinScreenState extends State<VerifyPinScreen> {
       // ----------------------------------------------------------
 
       final Uint8List? dek = await KeyService.getUnwrappedKey(
-  pin: enteredPin,
-);
+        pin: enteredPin,
+      );
 
-if (dek == null || dek.isEmpty) {
-  throw Exception(
-    'Encryption key could not be obtained.',
-  );
-}
-
-      if (dek.isEmpty) {
+      if (dek == null || dek.isEmpty) {
         throw Exception(
           'Encryption key could not be obtained.',
         );
@@ -297,7 +291,7 @@ if (dek == null || dek.isEmpty) {
   }
 
   // ============================================================
-  // PIN INPUT
+  // ADD DIGIT
   // ============================================================
 
   void _addDigit(String digit) {
@@ -316,6 +310,10 @@ if (dek == null || dek.isEmpty) {
     }
   }
 
+  // ============================================================
+  // DELETE DIGIT
+  // ============================================================
+
   void _removeDigit() {
     if (_isLoading) return;
 
@@ -332,211 +330,271 @@ if (dek == null || dek.isEmpty) {
   }
 
   // ============================================================
-  // DISPOSE
+  // PIN CIRCLE
   // ============================================================
 
-  @override
-  void dispose() {
-    _pinController.dispose();
-    super.dispose();
+  Widget _buildPinCircle(int index) {
+    final filled = index < _pinController.text.length;
+
+    return Container(
+      width: 18,
+      height: 18,
+      margin: const EdgeInsets.symmetric(
+        horizontal: 8,
+      ),
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        color: filled
+            ? Colors.white
+            : Colors.transparent,
+        border: Border.all(
+          color: Colors.white,
+          width: 2,
+        ),
+      ),
+    );
   }
 
   // ============================================================
-  // UI
+  // NUMBER BUTTON
+  // ============================================================
+
+  Widget _numberButton(String number) {
+    return InkWell(
+      borderRadius: BorderRadius.circular(18),
+      onTap: _isLoading
+          ? null
+          : () => _addDigit(number),
+      child: Container(
+        width: 82,
+        height: 62,
+        decoration: BoxDecoration(
+          color: AppColors.card,
+          borderRadius: BorderRadius.circular(18),
+        ),
+        child: Center(
+          child: Text(
+            number,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 28,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ============================================================
+  // KEYPAD ROW
+  // ============================================================
+
+  Widget _keypadRow(
+    String first,
+    String second,
+    String third,
+  ) {
+    return Padding(
+      padding: const EdgeInsets.only(
+        bottom: 15,
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+        children: [
+          _numberButton(first),
+          _numberButton(second),
+          _numberButton(third),
+        ],
+      ),
+    );
+  }
+
+  // ============================================================
+  // BUILD
   // ============================================================
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.background,
-      appBar: AppBar(
-        backgroundColor: AppColors.background,
-        elevation: 0,
-        centerTitle: true,
-        title: const Text(
-          'Verify PIN',
-          style: TextStyle(
-            fontWeight: FontWeight.bold,
-          ),
-        ),
-      ),
       body: SafeArea(
         child: Padding(
           padding: const EdgeInsets.symmetric(
-            horizontal: 28,
+            horizontal: 22,
+            vertical: 18,
           ),
           child: Column(
             children: [
-              const SizedBox(height: 35),
+              const SizedBox(height: 15),
 
-              const Icon(
-                Icons.lock_outline,
-                size: 65,
-                color: AppColors.lightPurple,
+              // ==================================================
+              // HEADER
+              // ==================================================
+
+              Row(
+                children: [
+                  Image.asset(
+                    "assets/images/logo.JPG",
+                    width: 42,
+                    height: 42,
+                  ),
+                  const SizedBox(width: 10),
+                  const Column(
+                    crossAxisAlignment:
+                        CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        "DATASHIELD",
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      Text(
+                        "Secure Mobile Data & Management System",
+                        style: TextStyle(
+                          color: Colors.white70,
+                          fontSize: 10,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
               ),
 
-              const SizedBox(height: 25),
+              const SizedBox(height: 35),
+
+              // ==================================================
+              // TITLE
+              // ==================================================
 
               const Text(
-                'Enter your PIN',
+                "Verify PIN",
                 style: TextStyle(
-                  fontSize: 25,
+                  color: Colors.white,
+                  fontSize: 28,
                   fontWeight: FontWeight.bold,
                 ),
               ),
 
-              const SizedBox(height: 10),
+              const SizedBox(height: 8),
 
               const Text(
-                'Verify your PIN to activate DataShield protection.',
-                textAlign: TextAlign.center,
+                "Enter your 4-digit security PIN",
                 style: TextStyle(
+                  color: Colors.white70,
                   fontSize: 15,
-                  color: Colors.grey,
                 ),
               ),
 
-              const SizedBox(height: 35),
+              const SizedBox(height: 30),
 
-              // --------------------------------------------------
-              // PIN DOTS
-              // --------------------------------------------------
+              // ==================================================
+              // PIN CIRCLES
+              // ==================================================
 
               Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: List.generate(
                   4,
-                  (index) {
-                    final filled =
-                        index < _pinController.text.length;
+                  (index) => _buildPinCircle(index),
+                ),
+              ),
 
-                    return Container(
-                      margin: const EdgeInsets.symmetric(
-                        horizontal: 9,
-                      ),
-                      width: 17,
-                      height: 17,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: filled
-                            ? AppColors.lightPurple
-                            : Colors.grey.shade300,
-                      ),
-                    );
-                  },
+              const SizedBox(height: 40),
+
+              // ==================================================
+              // KEYPAD
+              // ==================================================
+
+              _keypadRow("1", "2", "3"),
+              _keypadRow("4", "5", "6"),
+              _keypadRow("7", "8", "9"),
+
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                children: [
+                  const SizedBox(
+                    width: 82,
+                    height: 62,
+                  ),
+                  _numberButton("0"),
+                  const SizedBox(
+                    width: 82,
+                    height: 62,
+                  ),
+                ],
+              ),
+
+              const SizedBox(height: 20),
+
+              // ==================================================
+              // DELETE BUTTON
+              // ==================================================
+
+              SizedBox(
+                width: double.infinity,
+                height: 52,
+                child: ElevatedButton.icon(
+                  onPressed:
+                      _isLoading ? null : _removeDigit,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.redAccent,
+                    disabledBackgroundColor:
+                        Colors.redAccent.withOpacity(0.5),
+                    shape: RoundedRectangleBorder(
+                      borderRadius:
+                          BorderRadius.circular(14),
+                    ),
+                  ),
+                  icon: const Icon(
+                    Icons.backspace_outlined,
+                    color: Colors.white,
+                  ),
+                  label: const Text(
+                    "Delete",
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
                 ),
               ),
 
               const Spacer(),
 
-              // --------------------------------------------------
-              // KEYPAD
-              // --------------------------------------------------
-
-              _buildKeypad(),
-
-              const SizedBox(height: 25),
+              // ==================================================
+              // LOADING
+              // ==================================================
 
               if (_isLoading)
                 const Padding(
-                  padding: EdgeInsets.only(bottom: 25),
-                  child: CircularProgressIndicator(),
+                  padding: EdgeInsets.only(
+                    bottom: 12,
+                  ),
+                  child: CircularProgressIndicator(
+                    color: Colors.white,
+                  ),
                 ),
 
-              const SizedBox(height: 10),
+              // ==================================================
+              // FOOTER
+              // ==================================================
+
+              const Text(
+                "Enter your PIN to activate DataShield protection.",
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: Colors.white54,
+                  fontSize: 12,
+                ),
+              ),
+
+              const SizedBox(height: 15),
             ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  // ============================================================
-  // KEYPAD
-  // ============================================================
-
-  Widget _buildKeypad() {
-    return Column(
-      children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-          children: [
-            _key('1'),
-            _key('2'),
-            _key('3'),
-          ],
-        ),
-        const SizedBox(height: 15),
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-          children: [
-            _key('4'),
-            _key('5'),
-            _key('6'),
-          ],
-        ),
-        const SizedBox(height: 15),
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-          children: [
-            _key('7'),
-            _key('8'),
-            _key('9'),
-          ],
-        ),
-        const SizedBox(height: 15),
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-          children: [
-            const SizedBox(
-              width: 70,
-              height: 70,
-            ),
-            _key('0'),
-            _key(
-              '⌫',
-              onTap: _removeDigit,
-            ),
-          ],
-        ),
-      ],
-    );
-  }
-
-  Widget _key(
-    String value, {
-    VoidCallback? onTap,
-  }) {
-    return GestureDetector(
-      onTap: _isLoading
-          ? null
-          : () {
-              if (onTap != null) {
-                onTap();
-              } else {
-                _addDigit(value);
-              }
-            },
-      child: Container(
-        width: 70,
-        height: 70,
-        decoration: BoxDecoration(
-          color: Colors.white,
-          shape: BoxShape.circle,
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.08),
-              blurRadius: 6,
-              offset: const Offset(0, 3),
-            ),
-          ],
-        ),
-        alignment: Alignment.center,
-        child: Text(
-          value,
-          style: const TextStyle(
-            fontSize: 24,
-            fontWeight: FontWeight.w600,
           ),
         ),
       ),

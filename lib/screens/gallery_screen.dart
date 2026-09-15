@@ -1,4 +1,3 @@
-
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
@@ -16,11 +15,31 @@ class GalleryMediaItem {
   final MediaType type;
   final String fileName;
 
-  const GalleryMediaItem({
+  // ============================================================
+  // VIDEO THUMBNAIL
+  // ============================================================
+
+  Uint8List? thumbnailBytes;
+
+  // ============================================================
+  // RETAINED DECRYPTED VIDEO
+  //
+  // The video is decrypted once while generating its thumbnail.
+  // This stores the path to that SAME decrypted MP4.
+  //
+  // VideoViewerScreen will use this path directly instead of
+  // decrypting the encrypted video again.
+  // ============================================================
+
+  String? tempVideoPath;
+
+  GalleryMediaItem({
     required this.encryptedUri,
     required this.bytes,
     required this.type,
     required this.fileName,
+    this.thumbnailBytes,
+    this.tempVideoPath,
   });
 }
 
@@ -71,6 +90,18 @@ class _GalleryScreenState extends State<GalleryScreen> {
   // ============================================================
 
   Future<void> loadMedia() async {
+    // ============================================================
+    // CLEAN UP OLD RETAINED DECRYPTED VIDEOS
+    //
+    // This is especially important when the user pulls down to
+    // refresh the gallery.
+    //
+    // Old temporary MP4 files are deleted before loading the
+    // gallery again.
+    // ============================================================
+
+    await _cleanupRetainedVideoFiles();
+
     if (mounted) {
       setState(() {
         loading = true;
@@ -243,11 +274,13 @@ class _GalleryScreenState extends State<GalleryScreen> {
         // ======================================================
         // VIDEOS
         //
-        // DO NOT DECRYPT VIDEOS HERE.
+        // DO NOT DECRYPT FULL VIDEO INTO FLUTTER MEMORY.
         //
-        // Large videos should not be loaded into Flutter memory.
-        // They will be decrypted to a temporary file only when
-        // the user opens them.
+        // The video will be decrypted ONCE when its thumbnail
+        // is generated.
+        //
+        // The resulting temporary MP4 will be retained and
+        // stored in tempVideoPath.
         // ======================================================
 
         if (mediaType == MediaType.video) {
@@ -374,6 +407,26 @@ class _GalleryScreenState extends State<GalleryScreen> {
         mediaItems = finalItems;
         loading = false;
       });
+
+      // ========================================================
+      // 11. GENERATE VIDEO THUMBNAILS
+      //
+      // This happens AFTER the gallery itself is displayed.
+      //
+      // Each video is:
+      //
+      // encrypted .dsenc
+      //       ↓
+      // decrypt ONCE
+      //       ↓
+      // temporary .mp4
+      //       ├── thumbnail
+      //       └── retained for playback
+      //
+      // Videos are processed one at a time.
+      // ========================================================
+
+      await _generateVideoThumbnails();
     } catch (e, stackTrace) {
       print('');
       print('==============================================');
@@ -388,6 +441,143 @@ class _GalleryScreenState extends State<GalleryScreen> {
         loading = false;
       });
     }
+  }
+
+  // ============================================================
+  // GENERATE VIDEO THUMBNAILS
+  // ============================================================
+
+  Future<void> _generateVideoThumbnails() async {
+    print('');
+    print('==============================================');
+    print('GENERATING VIDEO THUMBNAILS');
+    print('==============================================');
+
+    for (int i = 0; i < mediaItems.length; i++) {
+      if (!mounted) {
+        return;
+      }
+
+      final item = mediaItems[i];
+
+      if (item.type != MediaType.video) {
+        continue;
+      }
+
+      // --------------------------------------------------------
+      // Skip if the video has already been processed.
+      //
+      // Both values should exist after successful processing:
+      //
+      // thumbnailBytes
+      // tempVideoPath
+      // --------------------------------------------------------
+
+      if (item.thumbnailBytes != null &&
+          item.tempVideoPath != null &&
+          item.tempVideoPath!.isNotEmpty) {
+        continue;
+      }
+
+      print('');
+      print('GENERATING THUMBNAIL [$i]');
+      print('FILE: ${item.fileName}');
+      print('URI: ${item.encryptedUri}');
+
+      // ========================================================
+      // DECRYPT ONCE + GENERATE THUMBNAIL
+      //
+      // The returned map contains:
+      //
+      // thumbnailBytes
+      // videoPath
+      // ========================================================
+
+      final result =
+          await DecryptionService.generateVideoThumbnail(
+        item.encryptedUri,
+        item.fileName,
+        widget.dek,
+      );
+
+      if (!mounted) {
+        return;
+      }
+
+      if (result == null) {
+        print('');
+        print('!!! VIDEO THUMBNAIL FAILED !!!');
+        print('FILE: ${item.fileName}');
+
+        continue;
+      }
+
+      // ========================================================
+      // GET THUMBNAIL
+      // ========================================================
+
+      final thumbnail =
+          result['thumbnailBytes'];
+
+      // ========================================================
+      // GET RETAINED VIDEO PATH
+      // ========================================================
+
+      final videoPath =
+          result['videoPath'];
+
+      if (thumbnail is! Uint8List) {
+        print('');
+        print('!!! INVALID VIDEO THUMBNAIL DATA !!!');
+        print('FILE: ${item.fileName}');
+
+        continue;
+      }
+
+      if (videoPath == null ||
+          videoPath.toString().isEmpty) {
+        print('');
+        print('!!! RETAINED VIDEO PATH IS MISSING !!!');
+        print('FILE: ${item.fileName}');
+
+        continue;
+      }
+
+      final String retainedVideoPath =
+          videoPath.toString();
+
+      // ========================================================
+      // LOG SUCCESS
+      // ========================================================
+
+      print('');
+      print('VIDEO THUMBNAIL GENERATED');
+      print('FILE: ${item.fileName}');
+
+      print(
+        'THUMBNAIL SIZE: '
+        '${thumbnail.length} bytes',
+      );
+
+      print('');
+      print('DECRYPTED VIDEO RETAINED');
+      print('VIDEO PATH:');
+      print(retainedVideoPath);
+
+      // ========================================================
+      // STORE BOTH RESULTS
+      // ========================================================
+
+      setState(() {
+        item.thumbnailBytes = thumbnail;
+        item.tempVideoPath = retainedVideoPath;
+      });
+    }
+
+    print('');
+    print('==============================================');
+    print('VIDEO THUMBNAIL GENERATION COMPLETE');
+    print('==============================================');
   }
 
   // ============================================================
@@ -497,13 +687,35 @@ class _GalleryScreenState extends State<GalleryScreen> {
           );
 
     final filesToDelete = <String>[];
+    final temporaryVideosToDelete = <String>[];
 
     for (final index in indexes) {
       if (index >= 0 &&
           index < mediaItems.length) {
+        final item = mediaItems[index];
+
+        // ======================================================
+        // ENCRYPTED FILE
+        // ======================================================
+
         filesToDelete.add(
-          mediaItems[index].encryptedUri,
+          item.encryptedUri,
         );
+
+        // ======================================================
+        // RETAINED DECRYPTED VIDEO
+        //
+        // This is the temporary MP4 created while generating
+        // the video thumbnail.
+        // ======================================================
+
+        if (item.type == MediaType.video &&
+            item.tempVideoPath != null &&
+            item.tempVideoPath!.isNotEmpty) {
+          temporaryVideosToDelete.add(
+            item.tempVideoPath!,
+          );
+        }
       }
     }
 
@@ -539,6 +751,40 @@ class _GalleryScreenState extends State<GalleryScreen> {
       } catch (e) {
         print(
           'DELETE FAILED: $encryptedUri',
+        );
+        print(e);
+      }
+    }
+
+    // ==========================================================
+    // DELETE RETAINED DECRYPTED VIDEOS
+    //
+    // These are temporary MP4 files created during thumbnail
+    // generation.
+    // ==========================================================
+
+    for (final videoPath in temporaryVideosToDelete) {
+      try {
+        final deleted =
+            await DecryptionService.deleteTemporaryVideo(
+          videoPath,
+        );
+
+        if (deleted) {
+          print(
+            'Deleted retained decrypted video: '
+            '$videoPath',
+          );
+        } else {
+          print(
+            'Retained decrypted video was already missing: '
+            '$videoPath',
+          );
+        }
+      } catch (e) {
+        print(
+          'TEMP VIDEO DELETE FAILED: '
+          '$videoPath',
         );
         print(e);
       }
@@ -596,6 +842,13 @@ class _GalleryScreenState extends State<GalleryScreen> {
 
   // ============================================================
   // OPEN VIDEO VIEWER
+  //
+  // IMPORTANT:
+  //
+  // If thumbnail generation already decrypted the video,
+  // use the retained temporary MP4.
+  //
+  // VideoViewerScreen will therefore NOT decrypt it again.
   // ============================================================
 
   void _openVideoViewer(int index) {
@@ -610,6 +863,17 @@ class _GalleryScreenState extends State<GalleryScreen> {
       return;
     }
 
+    print('');
+    print('==============================================');
+    print('OPENING VIDEO');
+    print('FILE: ${item.fileName}');
+    print('==============================================');
+
+    print(
+      'RETAINED VIDEO PATH: '
+      '${item.tempVideoPath ?? 'NULL'}',
+    );
+
     Navigator.push(
       context,
       MaterialPageRoute(
@@ -618,9 +882,110 @@ class _GalleryScreenState extends State<GalleryScreen> {
           encryptedUri: item.encryptedUri,
           fileName: item.fileName,
           encryptionKey: widget.dek,
+
+          // --------------------------------------------------
+          // IMPORTANT:
+          //
+          // Pass the already decrypted MP4.
+          //
+          // VideoViewerScreen will use this file directly
+          // instead of decrypting the encrypted video again.
+          // --------------------------------------------------
+
+          tempVideoPath: item.tempVideoPath,
         ),
       ),
     );
+  }
+
+  // ============================================================
+  // CLEANUP RETAINED DECRYPTED VIDEOS
+  //
+  // GalleryScreen owns the temporary decrypted MP4 files.
+  //
+  // They are created during video thumbnail generation and reused
+  // by VideoViewerScreen for playback.
+  //
+  // VideoViewerScreen does NOT delete them.
+  //
+  // GalleryScreen deletes them when:
+  //   1. Gallery is refreshed
+  //   2. Gallery is closed/disposed
+  //   3. A video is deleted from the gallery
+  // ============================================================
+
+  Future<void> _cleanupRetainedVideoFiles() async {
+    print('');
+    print('==============================================');
+    print('CLEANING UP RETAINED DECRYPTED VIDEOS');
+    print('==============================================');
+
+    final paths = <String>{};
+
+    for (final item in mediaItems) {
+      if (item.type != MediaType.video) {
+        continue;
+      }
+
+      final path = item.tempVideoPath;
+
+      if (path != null && path.isNotEmpty) {
+        paths.add(path);
+      }
+    }
+
+    if (paths.isEmpty) {
+      print('No retained decrypted videos to clean.');
+      return;
+    }
+
+    for (final path in paths) {
+      try {
+        final deleted =
+            await DecryptionService.deleteTemporaryVideo(
+          path,
+        );
+
+        if (deleted) {
+          print('Deleted retained video:');
+          print(path);
+        } else {
+          print('Retained video was already missing:');
+          print(path);
+        }
+      } catch (e) {
+        print('FAILED TO DELETE RETAINED VIDEO:');
+        print(path);
+        print(e);
+      }
+    }
+
+    print('');
+    print('==============================================');
+    print('RETAINED VIDEO CLEANUP COMPLETE');
+    print('FILES CLEANED: ${paths.length}');
+    print('==============================================');
+  }
+
+  // ============================================================
+  // DISPOSE
+  //
+  // GalleryScreen owns the retained decrypted video files.
+  //
+  // When the gallery is closed, delete those temporary MP4 files.
+  // ============================================================
+
+  @override
+  void dispose() {
+    print('');
+    print('==============================================');
+    print('GALLERY SCREEN DISPOSING');
+    print('CLEANING RETAINED DECRYPTED VIDEOS');
+    print('==============================================');
+
+    _cleanupRetainedVideoFiles();
+
+    super.dispose();
   }
 
   // ============================================================
@@ -868,12 +1233,12 @@ class _GalleryScreenState extends State<GalleryScreen> {
                       ),
 
                     // ==================================================
-                    // VIDEO
+                    // VIDEO THUMBNAIL
                     // ==================================================
 
                     if (item.type ==
                         MediaType.video)
-                      _videoPlaceholder(),
+                      _videoThumbnail(item),
 
                     // ==================================================
                     // SELECTION OVERLAY
@@ -959,6 +1324,53 @@ class _GalleryScreenState extends State<GalleryScreen> {
             ),
           );
         },
+      ),
+    );
+  }
+
+  // ============================================================
+  // VIDEO THUMBNAIL
+  // ============================================================
+
+  Widget _videoThumbnail(
+    GalleryMediaItem item,
+  ) {
+    // ==========================================================
+    // THUMBNAIL AVAILABLE
+    // ==========================================================
+
+    if (item.thumbnailBytes != null) {
+      return Image.memory(
+        item.thumbnailBytes!,
+        fit: BoxFit.cover,
+
+        errorBuilder:
+            (
+          context,
+          error,
+          stackTrace,
+        ) {
+          return _videoPlaceholder();
+        },
+      );
+    }
+
+    // ==========================================================
+    // THUMBNAIL STILL BEING GENERATED
+    // ==========================================================
+
+    return Container(
+      color: Colors.black26,
+
+      child: const Center(
+        child: SizedBox(
+          width: 28,
+          height: 28,
+          child: CircularProgressIndicator(
+            color: cyan,
+            strokeWidth: 2.5,
+          ),
+        ),
       ),
     );
   }

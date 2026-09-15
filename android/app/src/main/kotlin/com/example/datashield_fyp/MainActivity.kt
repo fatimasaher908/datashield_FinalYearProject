@@ -101,6 +101,13 @@ override fun configureFlutterEngine(
         flutterEngine
     )
 
+    flutterEngine
+    .platformViewsController
+    .registry
+    .registerViewFactory(
+        "datashield/video_player",
+        DataShieldVideoViewFactory()
+    )
 
     // ========================================================
     // SERVICE CHANNEL
@@ -954,6 +961,224 @@ override fun configureFlutterEngine(
                     )
                 }
             }
+
+// =================================================
+// GENERATE VIDEO THUMBNAIL
+//
+// IMPORTANT:
+//
+// DecryptionEngine.generateVideoThumbnail()
+// now:
+//
+// 1. Decrypts the video ONCE
+// 2. Extracts the thumbnail
+// 3. Keeps the decrypted temporary MP4
+// 4. Returns BOTH:
+//      - thumbnailBytes
+//      - videoPath
+//
+// Flutter will use videoPath later for playback,
+// preventing a second decryption.
+// =================================================
+
+"generateVideoThumbnail" -> {
+
+    val uriString =
+        call.argument<String>(
+            "uri"
+        )
+
+    val fileName =
+        call.argument<String>(
+            "name"
+        )
+
+    val keyBytes =
+        call.argument<ByteArray>(
+            "key"
+        )
+
+    if (uriString.isNullOrEmpty()) {
+
+        result.error(
+            "NO_URI",
+            "Encrypted video URI is missing.",
+            null
+        )
+
+        return@setMethodCallHandler
+    }
+
+    if (
+        keyBytes == null ||
+        keyBytes.size != 32
+    ) {
+
+        result.error(
+            "INVALID_KEY",
+            "AES-256 decryption key is missing or invalid.",
+            null
+        )
+
+        return@setMethodCallHandler
+    }
+
+    try {
+
+        val encryptedUri =
+            Uri.parse(
+                uriString
+            )
+
+        Log.d(
+            TAG,
+            "========== GENERATE VIDEO THUMBNAIL =========="
+        )
+
+        Log.d(
+            TAG,
+            "URI: $encryptedUri"
+        )
+
+        Log.d(
+            TAG,
+            "Name: $fileName"
+        )
+
+        // ------------------------------------------------
+        // DECRYPT VIDEO ONCE + GENERATE THUMBNAIL
+        //
+        // The returned map contains:
+        //
+        // thumbnailBytes
+        // videoPath
+        // ------------------------------------------------
+
+        val resultMap =
+            DecryptionEngine.generateVideoThumbnail(
+                this,
+                encryptedUri,
+                fileName,
+                keyBytes
+            )
+
+        if (resultMap == null) {
+
+            result.error(
+                "THUMBNAIL_ERROR",
+                "Could not generate video thumbnail.",
+                null
+            )
+
+            return@setMethodCallHandler
+        }
+
+        // ------------------------------------------------
+        // GET THUMBNAIL BYTES
+        // ------------------------------------------------
+
+        val thumbnailBytes =
+            resultMap["thumbnailBytes"]
+
+        // ------------------------------------------------
+        // GET RETAINED DECRYPTED VIDEO PATH
+        // ------------------------------------------------
+
+        val videoPath =
+            resultMap["videoPath"]
+
+        if (
+            thumbnailBytes !is ByteArray
+        ) {
+
+            Log.e(
+                TAG,
+                "Thumbnail bytes are missing or invalid."
+            )
+
+            result.error(
+                "THUMBNAIL_ERROR",
+                "Generated thumbnail data is invalid.",
+                null
+            )
+
+            return@setMethodCallHandler
+        }
+
+        if (
+            videoPath !is String ||
+            videoPath.isEmpty()
+        ) {
+
+            Log.e(
+                TAG,
+                "Decrypted video path is missing or invalid."
+            )
+
+            result.error(
+                "VIDEO_PATH_ERROR",
+                "Decrypted video path is missing.",
+                null
+            )
+
+            return@setMethodCallHandler
+        }
+
+        // ------------------------------------------------
+        // LOG SUCCESS
+        // ------------------------------------------------
+
+        Log.d(
+            TAG,
+            "Video thumbnail generated successfully."
+        )
+
+        Log.d(
+            TAG,
+            "Thumbnail bytes: ${thumbnailBytes.size}"
+        )
+
+        Log.d(
+            TAG,
+            "Decrypted video path:"
+        )
+
+        Log.d(
+            TAG,
+            videoPath
+        )
+
+        Log.d(
+            TAG,
+            "Decrypted video is being kept for playback."
+        )
+
+        // ------------------------------------------------
+        // RETURN BOTH RESULTS TO FLUTTER
+        // ------------------------------------------------
+
+        result.success(
+            mapOf(
+                "thumbnailBytes" to thumbnailBytes,
+                "videoPath" to videoPath
+            )
+        )
+
+    } catch (e: Exception) {
+
+        Log.e(
+            TAG,
+            "Failed to generate video thumbnail",
+            e
+        )
+
+        result.error(
+            "THUMBNAIL_ERROR",
+            "Could not generate video thumbnail.",
+            e.message
+        )
+    }
+}
 
 
             // =================================================

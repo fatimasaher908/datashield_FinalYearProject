@@ -120,4 +120,12 @@ dependencies {
     "org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.0"
     )
 
+    implementation(
+    "androidx.media3:media3-exoplayer:1.9.2"
+    )
+
+    implementation(
+    "androidx.media3:media3-ui:1.9.2"
+    )
+
 }
