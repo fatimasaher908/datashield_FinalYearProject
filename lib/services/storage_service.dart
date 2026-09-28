@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
@@ -8,18 +10,19 @@ class StorageService {
   // METHOD CHANNELS
   // ============================================================
 
-  static const MethodChannel _storageChannel =
-      MethodChannel('datashield/storage');
+  static const MethodChannel _storageChannel = MethodChannel(
+    'datashield/storage',
+  );
 
-  static const MethodChannel _serviceChannel =
-      MethodChannel('datashield/service');
+  static const MethodChannel _serviceChannel = MethodChannel(
+    'datashield/service',
+  );
 
   // ============================================================
   // SECURE STORAGE
   // ============================================================
 
-  static const FlutterSecureStorage _secureStorage =
-      FlutterSecureStorage();
+  static const FlutterSecureStorage _secureStorage = FlutterSecureStorage();
 
   // ============================================================
   // STORAGE KEYS
@@ -38,10 +41,7 @@ class StorageService {
   static Future<void> saveUserId(String userId) async {
     final prefs = await SharedPreferences.getInstance();
 
-    await prefs.setString(
-      userIdKey,
-      userId,
-    );
+    await prefs.setString(userIdKey, userId);
   }
 
   static Future<String?> getUserId() async {
@@ -50,27 +50,92 @@ class StorageService {
     return prefs.getString(userIdKey);
   }
 
+  static Future<void> debugJwtContents() async {
+    print('');
+    print('==============================================');
+    print('              JWT DEBUG');
+    print('==============================================');
+
+    try {
+      final token = await getJwtToken();
+
+      if (token == null || token.isEmpty) {
+        print('JWT = NULL / EMPTY');
+        print('==============================================');
+        return;
+      }
+
+      print('JWT FOUND');
+      print('JWT LENGTH = ${token.length}');
+      
+
+      final parts = token.split('.');
+
+      print('JWT PARTS = ${parts.length}');
+
+      if (parts.length != 3) {
+        print('ERROR: Invalid JWT format');
+        print('==============================================');
+        return;
+      }
+
+      final payload = parts[1];
+
+      final normalizedPayload = base64Url.normalize(payload);
+      final decodedBytes = base64Url.decode(normalizedPayload);
+      final decodedPayload = utf8.decode(decodedBytes);
+
+      print('JWT PAYLOAD = $decodedPayload');
+      print('----------------------------------------------');
+
+      final claims = jsonDecode(decodedPayload);
+
+      print('id       = ${claims['id']}');
+      print('user_id  = ${claims['user_id']}');
+      print('userId   = ${claims['userId']}');
+      print('email    = ${claims['email']}');
+      print('jti      = ${claims['jti']}');
+      print('iat      = ${claims['iat']}');
+      print('exp      = ${claims['exp']}');
+
+      print('==============================================');
+    } catch (e, stackTrace) {
+      print('JWT DEBUG ERROR = $e');
+      print(stackTrace);
+      print('==============================================');
+    }
+  }
   // ============================================================
   // JWT TOKEN
   // ============================================================
 
   static Future<void> saveJwtToken(String token) async {
-    await _secureStorage.write(
-      key: jwtTokenKey,
-      value: token,
-    );
+    // Existing secure Flutter storage
+    await _secureStorage.write(key: jwtTokenKey, value: token);
+
+    // Also make the token available to the native
+    // background DataShieldService.
+    try {
+      await _storageChannel.invokeMethod('saveNativeJwt', {'token': token});
+
+      debugPrint('JWT also saved for native background service.');
+    } catch (e) {
+      debugPrint('Failed to save JWT to native storage: $e');
+    }
   }
 
   static Future<String?> getJwtToken() async {
-    return await _secureStorage.read(
-      key: jwtTokenKey,
-    );
+    return await _secureStorage.read(key: jwtTokenKey);
   }
 
   static Future<void> deleteJwtToken() async {
-    await _secureStorage.delete(
-      key: jwtTokenKey,
-    );
+    await _secureStorage.delete(key: jwtTokenKey);
+
+    try {
+      await _storageChannel.invokeMethod('deleteNativeJwt');
+    } catch (e) {
+      debugPrint('Failed to delete native JWT: $e');
+    }
   }
 
   // ============================================================
@@ -94,48 +159,34 @@ class StorageService {
   /// No generic folder-selection screen is used.
   static Future<Map<String, String>?> requestMediaFolders() async {
     try {
-      final result =
-          await _storageChannel.invokeMethod<Map<dynamic, dynamic>>(
+      final result = await _storageChannel.invokeMethod<Map<dynamic, dynamic>>(
         'requestMediaFolders',
       );
 
       if (result == null) {
-        debugPrint(
-          'Media folder permission was cancelled.',
-        );
+        debugPrint('Media folder permission was cancelled.');
 
         return null;
       }
 
-      final picturesUri =
-          result['picturesUri']?.toString();
+      final picturesUri = result['picturesUri']?.toString();
 
-      final dcimUri =
-          result['dcimUri']?.toString();
+      final dcimUri = result['dcimUri']?.toString();
 
       if (picturesUri == null ||
           picturesUri.isEmpty ||
           dcimUri == null ||
           dcimUri.isEmpty) {
-        debugPrint(
-          'Invalid media folder URIs received.',
-        );
+        debugPrint('Invalid media folder URIs received.');
 
         return null;
       }
 
-      debugPrint(
-        'Pictures URI: $picturesUri',
-      );
+      debugPrint('Pictures URI: $picturesUri');
 
-      debugPrint(
-        'DCIM URI: $dcimUri',
-      );
+      debugPrint('DCIM URI: $dcimUri');
 
-      return {
-        'picturesUri': picturesUri,
-        'dcimUri': dcimUri,
-      };
+      return {'picturesUri': picturesUri, 'dcimUri': dcimUri};
     } on PlatformException catch (e) {
       debugPrint(
         'Failed to request media folders: '
@@ -144,9 +195,7 @@ class StorageService {
 
       return null;
     } catch (e) {
-      debugPrint(
-        'Unexpected media folder error: $e',
-      );
+      debugPrint('Unexpected media folder error: $e');
 
       return null;
     }
@@ -161,15 +210,12 @@ class StorageService {
   /// Kept for compatibility with older code.
   static Future<String?> requestPicturesFolder() async {
     try {
-      final String? uri =
-          await _storageChannel.invokeMethod<String>(
+      final String? uri = await _storageChannel.invokeMethod<String>(
         'requestPicturesFolder',
       );
 
       if (uri != null && uri.isNotEmpty) {
-        debugPrint(
-          'Pictures folder URI received: $uri',
-        );
+        debugPrint('Pictures folder URI received: $uri');
       }
 
       return uri;
@@ -181,9 +227,7 @@ class StorageService {
 
       return null;
     } catch (e) {
-      debugPrint(
-        'Unexpected Pictures folder error: $e',
-      );
+      debugPrint('Unexpected Pictures folder error: $e');
 
       return null;
     }
@@ -195,15 +239,12 @@ class StorageService {
 
   static Future<String?> getPicturesFolderUri() async {
     try {
-      final String? uri =
-          await _storageChannel.invokeMethod<String>(
+      final String? uri = await _storageChannel.invokeMethod<String>(
         'getPicturesFolderUri',
       );
 
       if (uri != null && uri.isNotEmpty) {
-        debugPrint(
-          'Saved Pictures URI: $uri',
-        );
+        debugPrint('Saved Pictures URI: $uri');
       }
 
       return uri;
@@ -215,9 +256,7 @@ class StorageService {
 
       return null;
     } catch (e) {
-      debugPrint(
-        'Unexpected error getting Pictures URI: $e',
-      );
+      debugPrint('Unexpected error getting Pictures URI: $e');
 
       return null;
     }
@@ -229,15 +268,12 @@ class StorageService {
 
   static Future<String?> getDcimFolderUri() async {
     try {
-      final String? uri =
-          await _storageChannel.invokeMethod<String>(
+      final String? uri = await _storageChannel.invokeMethod<String>(
         'getDcimFolderUri',
       );
 
       if (uri != null && uri.isNotEmpty) {
-        debugPrint(
-          'Saved DCIM URI: $uri',
-        );
+        debugPrint('Saved DCIM URI: $uri');
       }
 
       return uri;
@@ -249,9 +285,7 @@ class StorageService {
 
       return null;
     } catch (e) {
-      debugPrint(
-        'Unexpected error getting DCIM URI: $e',
-      );
+      debugPrint('Unexpected error getting DCIM URI: $e');
 
       return null;
     }
@@ -263,21 +297,17 @@ class StorageService {
 
   /// Returns both protected media locations.
   static Future<Map<String, String>> getMediaFolders() async {
-    final picturesUri =
-        await getPicturesFolderUri();
+    final picturesUri = await getPicturesFolderUri();
 
-    final dcimUri =
-        await getDcimFolderUri();
+    final dcimUri = await getDcimFolderUri();
 
     final Map<String, String> folders = {};
 
-    if (picturesUri != null &&
-        picturesUri.isNotEmpty) {
+    if (picturesUri != null && picturesUri.isNotEmpty) {
       folders['picturesUri'] = picturesUri;
     }
 
-    if (dcimUri != null &&
-        dcimUri.isNotEmpty) {
+    if (dcimUri != null && dcimUri.isNotEmpty) {
       folders['dcimUri'] = dcimUri;
     }
 
@@ -297,22 +327,17 @@ class StorageService {
 
   static Future<String?> pickFolder() async {
     try {
-      final String? uri =
-          await _storageChannel.invokeMethod<String>(
+      final String? uri = await _storageChannel.invokeMethod<String>(
         'pickFolder',
       );
 
       return uri;
     } on PlatformException catch (e) {
-      debugPrint(
-        'Folder picker error: ${e.message}',
-      );
+      debugPrint('Folder picker error: ${e.message}');
 
       return null;
     } catch (e) {
-      debugPrint(
-        'Unexpected folder picker error: $e',
-      );
+      debugPrint('Unexpected folder picker error: $e');
 
       return null;
     }
@@ -323,23 +348,15 @@ class StorageService {
   // ============================================================
 
   static Future<void> saveAccount(bool value) async {
-    final prefs =
-        await SharedPreferences.getInstance();
+    final prefs = await SharedPreferences.getInstance();
 
-    await prefs.setBool(
-      hasAccountKey,
-      value,
-    );
+    await prefs.setBool(hasAccountKey, value);
   }
 
   static Future<bool> hasAccount() async {
-    final prefs =
-        await SharedPreferences.getInstance();
+    final prefs = await SharedPreferences.getInstance();
 
-    return prefs.getBool(
-          hasAccountKey,
-        ) ??
-        false;
+    return prefs.getBool(hasAccountKey) ?? false;
   }
 
   // ============================================================
@@ -347,23 +364,15 @@ class StorageService {
   // ============================================================
 
   static Future<void> saveLoggedIn(bool value) async {
-    final prefs =
-        await SharedPreferences.getInstance();
+    final prefs = await SharedPreferences.getInstance();
 
-    await prefs.setBool(
-      loggedInKey,
-      value,
-    );
+    await prefs.setBool(loggedInKey, value);
   }
 
   static Future<bool> isLoggedIn() async {
-    final prefs =
-        await SharedPreferences.getInstance();
+    final prefs = await SharedPreferences.getInstance();
 
-    return prefs.getBool(
-          loggedInKey,
-        ) ??
-        false;
+    return prefs.getBool(loggedInKey) ?? false;
   }
 
   // ============================================================
@@ -385,47 +394,32 @@ class StorageService {
   static Future<void> saveProtectedFolders(
     List<Map<String, String>> folders,
   ) async {
-    final prefs =
-        await SharedPreferences.getInstance();
+    final prefs = await SharedPreferences.getInstance();
 
-    final List<String> data =
-        folders.map((folder) {
-      final name =
-          folder['name'] ?? '';
+    final List<String> data = folders.map((folder) {
+      final name = folder['name'] ?? '';
 
-      final uri =
-          folder['uri'] ?? '';
+      final uri = folder['uri'] ?? '';
 
       return '$name|$uri';
     }).toList();
 
-    await prefs.setStringList(
-      protectedFoldersKey,
-      data,
-    );
+    await prefs.setStringList(protectedFoldersKey, data);
   }
 
-  static Future<List<Map<String, String>>>
-      loadProtectedFolders() async {
-    final prefs =
-        await SharedPreferences.getInstance();
+  static Future<List<Map<String, String>>> loadProtectedFolders() async {
+    final prefs = await SharedPreferences.getInstance();
 
-    final savedFolders =
-        prefs.getStringList(
-      protectedFoldersKey,
-    );
+    final savedFolders = prefs.getStringList(protectedFoldersKey);
 
-    if (savedFolders == null ||
-        savedFolders.isEmpty) {
+    if (savedFolders == null || savedFolders.isEmpty) {
       return [];
     }
 
-    final List<Map<String, String>>
-        folders = [];
+    final List<Map<String, String>> folders = [];
 
     for (final folder in savedFolders) {
-      final data =
-          folder.split('|');
+      final data = folder.split('|');
 
       if (data.length < 2) {
         continue;
@@ -433,17 +427,13 @@ class StorageService {
 
       final name = data[0];
 
-      final uri =
-          data.sublist(1).join('|');
+      final uri = data.sublist(1).join('|');
 
       if (uri.isEmpty) {
         continue;
       }
 
-      folders.add({
-        'name': name,
-        'uri': uri,
-      });
+      folders.add({'name': name, 'uri': uri});
     }
 
     return folders;
@@ -453,25 +443,18 @@ class StorageService {
   // STOP DATASHIELD SERVICE
   // ============================================================
 
-  static Future<void>
-      stopDataShieldService() async {
+  static Future<void> stopDataShieldService() async {
     try {
-      await _serviceChannel.invokeMethod(
-        'stopService',
-      );
+      await _serviceChannel.invokeMethod('stopService');
 
-      debugPrint(
-        'DataShield foreground service stopped.',
-      );
+      debugPrint('DataShield foreground service stopped.');
     } on PlatformException catch (e) {
       debugPrint(
         'Failed to stop DataShield service: '
         '${e.code}: ${e.message}',
       );
     } catch (e) {
-      debugPrint(
-        'Failed to stop DataShield service: $e',
-      );
+      debugPrint('Failed to stop DataShield service: $e');
     }
   }
 
@@ -482,19 +465,13 @@ class StorageService {
   static Future<void> logout() async {
     await stopDataShieldService();
 
-    final prefs =
-        await SharedPreferences.getInstance();
+    final prefs = await SharedPreferences.getInstance();
 
-    await prefs.setBool(
-      loggedInKey,
-      false,
-    );
+    await prefs.setBool(loggedInKey, false);
 
     await deleteJwtToken();
 
-    debugPrint(
-      'DataShield logout completed.',
-    );
+    debugPrint('DataShield logout completed.');
   }
 
   // ============================================================
@@ -504,15 +481,12 @@ class StorageService {
   static Future<void> clearAll() async {
     await stopDataShieldService();
 
-    final prefs =
-        await SharedPreferences.getInstance();
+    final prefs = await SharedPreferences.getInstance();
 
     await prefs.clear();
 
     await _secureStorage.deleteAll();
 
-    debugPrint(
-      'All DataShield local data cleared.',
-    );
+    debugPrint('All DataShield local data cleared.');
   }
 }

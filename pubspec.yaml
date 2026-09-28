@@ -8,6 +8,7 @@ environment:
   sdk: ^3.9.2
 
 dependencies:
+  shelf: ^1.4.2
   flutter:
     sdk: flutter
 

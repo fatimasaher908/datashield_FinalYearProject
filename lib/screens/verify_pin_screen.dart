@@ -14,10 +14,7 @@ import 'dashboard_screen.dart';
 class VerifyPinScreen extends StatefulWidget {
   final String pin;
 
-  const VerifyPinScreen({
-    super.key,
-    required this.pin,
-  });
+  const VerifyPinScreen({super.key, required this.pin});
 
   @override
   State<VerifyPinScreen> createState() => _VerifyPinScreenState();
@@ -28,7 +25,7 @@ class _VerifyPinScreenState extends State<VerifyPinScreen> {
 
   bool _isLoading = false;
 
-  final String baseUrl = 'https://192.168.18.46:8383';
+  final String baseUrl = 'https://192.168.137.1:8383';
 
   // ============================================================
   // CREATE SECURE HTTP CLIENT
@@ -37,20 +34,16 @@ class _VerifyPinScreenState extends State<VerifyPinScreen> {
   Future<IOClient> _createSecureClient() async {
     final context = SecurityContext(withTrustedRoots: true);
 
-    final rootCA = await rootBundle.load(
-      'assets/certs/rootca.pem',
-    );
+    final rootCA = await rootBundle.load('assets/certs/rootca.pem');
 
-    context.setTrustedCertificatesBytes(
-      rootCA.buffer.asUint8List(),
-    );
+    context.setTrustedCertificatesBytes(rootCA.buffer.asUint8List());
 
     final httpClient = HttpClient(context: context);
 
     httpClient.badCertificateCallback =
         (X509Certificate cert, String host, int port) {
-      return false;
-    };
+          return false;
+        };
 
     return IOClient(httpClient);
   }
@@ -110,22 +103,14 @@ class _VerifyPinScreenState extends State<VerifyPinScreen> {
           'Content-Type': 'application/json',
           'Authorization': 'Bearer $token',
         },
-        body: jsonEncode({
-          'user_id': userId,
-          'pin': enteredPin,
-        }),
+        body: jsonEncode({'user_id': userId, 'pin': enteredPin}),
       );
 
-      debugPrint(
-        'Key create response: ${response.statusCode}',
-      );
+      debugPrint('Key create response: ${response.statusCode}');
 
-      debugPrint(
-        'Key create body: ${response.body}',
-      );
+      debugPrint('Key create body: ${response.body}');
 
-      if (response.statusCode != 200 &&
-          response.statusCode != 201) {
+      if (response.statusCode != 200 && response.statusCode != 201) {
         throw Exception(
           'Failed to create encryption key. '
           'Server returned ${response.statusCode}.',
@@ -136,19 +121,13 @@ class _VerifyPinScreenState extends State<VerifyPinScreen> {
       // STEP 2: GET UNWRAPPED AES KEY
       // ----------------------------------------------------------
 
-      final Uint8List? dek = await KeyService.getUnwrappedKey(
-        pin: enteredPin,
-      );
+      final Uint8List? dek = await KeyService.getUnwrappedKey(pin: enteredPin);
 
       if (dek == null || dek.isEmpty) {
-        throw Exception(
-          'Encryption key could not be obtained.',
-        );
+        throw Exception('Encryption key could not be obtained.');
       }
 
-      debugPrint(
-        'Encryption key obtained successfully.',
-      );
+      debugPrint('Encryption key obtained successfully.');
 
       // ----------------------------------------------------------
       // STEP 3: REQUEST PICTURES + DCIM ACCESS
@@ -165,54 +144,35 @@ class _VerifyPinScreenState extends State<VerifyPinScreen> {
         );
       }
 
-      final mediaFolders =
-          await StorageService.requestMediaFolders();
+      final mediaFolders = await StorageService.requestMediaFolders();
 
       if (mediaFolders == null) {
-        throw Exception(
-          'Storage access was not granted.',
-        );
+        throw Exception('Storage access was not granted.');
       }
 
-      final picturesUri =
-          mediaFolders['picturesUri'] ?? '';
+      final picturesUri = mediaFolders['picturesUri'] ?? '';
 
-      final dcimUri =
-          mediaFolders['dcimUri'] ?? '';
+      final dcimUri = mediaFolders['dcimUri'] ?? '';
 
       if (picturesUri.isEmpty) {
-        throw Exception(
-          'Pictures folder access was not granted.',
-        );
+        throw Exception('Pictures folder access was not granted.');
       }
 
       if (dcimUri.isEmpty) {
-        throw Exception(
-          'Camera/DCIM folder access was not granted.',
-        );
+        throw Exception('Camera/DCIM folder access was not granted.');
       }
 
-      debugPrint(
-        'Pictures URI: $picturesUri',
-      );
+      debugPrint('Pictures URI: $picturesUri');
 
-      debugPrint(
-        'DCIM URI: $dcimUri',
-      );
+      debugPrint('DCIM URI: $dcimUri');
 
       // ----------------------------------------------------------
       // STEP 4: START BACKGROUND ENCRYPTION SERVICE
       // ----------------------------------------------------------
 
-      await NativeService.startService(
-        picturesUri,
-        dcimUri,
-        dek,
-      );
+      await NativeService.startService(picturesUri, dcimUri, dek);
 
-      debugPrint(
-        'DataShield background service started.',
-      );
+      debugPrint('DataShield background service started.');
 
       // ----------------------------------------------------------
       // STEP 5: SAVE LOGIN STATE
@@ -237,27 +197,14 @@ class _VerifyPinScreenState extends State<VerifyPinScreen> {
 
       Navigator.pushReplacement(
         context,
-        MaterialPageRoute(
-          builder: (_) => DashboardScreen(
-            dek: dek,
-          ),
-        ),
+        MaterialPageRoute(builder: (_) => DashboardScreen(dek: dek)),
       );
     } catch (e, stackTrace) {
-      debugPrint(
-        'Verify PIN error: $e',
-      );
+      debugPrint('Verify PIN error: $e');
 
-      debugPrint(
-        'Stack trace: $stackTrace',
-      );
+      debugPrint('Stack trace: $stackTrace');
 
-      _showError(
-        e.toString().replaceFirst(
-          'Exception: ',
-          '',
-        ),
-      );
+      _showError(e.toString().replaceFirst('Exception: ', ''));
     } finally {
       client?.close();
 
@@ -281,10 +228,7 @@ class _VerifyPinScreenState extends State<VerifyPinScreen> {
     });
 
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: Colors.red,
-      ),
+      SnackBar(content: Text(message), backgroundColor: Colors.red),
     );
 
     _pinController.clear();
@@ -339,18 +283,11 @@ class _VerifyPinScreenState extends State<VerifyPinScreen> {
     return Container(
       width: 18,
       height: 18,
-      margin: const EdgeInsets.symmetric(
-        horizontal: 8,
-      ),
+      margin: const EdgeInsets.symmetric(horizontal: 8),
       decoration: BoxDecoration(
         shape: BoxShape.circle,
-        color: filled
-            ? Colors.white
-            : Colors.transparent,
-        border: Border.all(
-          color: Colors.white,
-          width: 2,
-        ),
+        color: filled ? Colors.white : Colors.transparent,
+        border: Border.all(color: Colors.white, width: 2),
       ),
     );
   }
@@ -362,9 +299,7 @@ class _VerifyPinScreenState extends State<VerifyPinScreen> {
   Widget _numberButton(String number) {
     return InkWell(
       borderRadius: BorderRadius.circular(18),
-      onTap: _isLoading
-          ? null
-          : () => _addDigit(number),
+      onTap: _isLoading ? null : () => _addDigit(number),
       child: Container(
         width: 82,
         height: 62,
@@ -390,15 +325,9 @@ class _VerifyPinScreenState extends State<VerifyPinScreen> {
   // KEYPAD ROW
   // ============================================================
 
-  Widget _keypadRow(
-    String first,
-    String second,
-    String third,
-  ) {
+  Widget _keypadRow(String first, String second, String third) {
     return Padding(
-      padding: const EdgeInsets.only(
-        bottom: 15,
-      ),
+      padding: const EdgeInsets.only(bottom: 15),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceEvenly,
         children: [
@@ -420,10 +349,7 @@ class _VerifyPinScreenState extends State<VerifyPinScreen> {
       backgroundColor: AppColors.background,
       body: SafeArea(
         child: Padding(
-          padding: const EdgeInsets.symmetric(
-            horizontal: 22,
-            vertical: 18,
-          ),
+          padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 18),
           child: Column(
             children: [
               const SizedBox(height: 15),
@@ -431,18 +357,12 @@ class _VerifyPinScreenState extends State<VerifyPinScreen> {
               // ==================================================
               // HEADER
               // ==================================================
-
               Row(
                 children: [
-                  Image.asset(
-                    "assets/images/logo.JPG",
-                    width: 42,
-                    height: 42,
-                  ),
+                  Image.asset("assets/images/logo.JPG", width: 42, height: 42),
                   const SizedBox(width: 10),
                   const Column(
-                    crossAxisAlignment:
-                        CrossAxisAlignment.start,
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
                         "DATASHIELD",
@@ -454,10 +374,7 @@ class _VerifyPinScreenState extends State<VerifyPinScreen> {
                       ),
                       Text(
                         "Secure Mobile Data & Management System",
-                        style: TextStyle(
-                          color: Colors.white70,
-                          fontSize: 10,
-                        ),
+                        style: TextStyle(color: Colors.white70, fontSize: 10),
                       ),
                     ],
                   ),
@@ -469,7 +386,6 @@ class _VerifyPinScreenState extends State<VerifyPinScreen> {
               // ==================================================
               // TITLE
               // ==================================================
-
               const Text(
                 "Verify PIN",
                 style: TextStyle(
@@ -483,10 +399,7 @@ class _VerifyPinScreenState extends State<VerifyPinScreen> {
 
               const Text(
                 "Enter your 4-digit security PIN",
-                style: TextStyle(
-                  color: Colors.white70,
-                  fontSize: 15,
-                ),
+                style: TextStyle(color: Colors.white70, fontSize: 15),
               ),
 
               const SizedBox(height: 30),
@@ -494,13 +407,9 @@ class _VerifyPinScreenState extends State<VerifyPinScreen> {
               // ==================================================
               // PIN CIRCLES
               // ==================================================
-
               Row(
                 mainAxisAlignment: MainAxisAlignment.center,
-                children: List.generate(
-                  4,
-                  (index) => _buildPinCircle(index),
-                ),
+                children: List.generate(4, (index) => _buildPinCircle(index)),
               ),
 
               const SizedBox(height: 40),
@@ -508,7 +417,6 @@ class _VerifyPinScreenState extends State<VerifyPinScreen> {
               // ==================================================
               // KEYPAD
               // ==================================================
-
               _keypadRow("1", "2", "3"),
               _keypadRow("4", "5", "6"),
               _keypadRow("7", "8", "9"),
@@ -516,15 +424,9 @@ class _VerifyPinScreenState extends State<VerifyPinScreen> {
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                 children: [
-                  const SizedBox(
-                    width: 82,
-                    height: 62,
-                  ),
+                  const SizedBox(width: 82, height: 62),
                   _numberButton("0"),
-                  const SizedBox(
-                    width: 82,
-                    height: 62,
-                  ),
+                  const SizedBox(width: 82, height: 62),
                 ],
               ),
 
@@ -533,20 +435,16 @@ class _VerifyPinScreenState extends State<VerifyPinScreen> {
               // ==================================================
               // DELETE BUTTON
               // ==================================================
-
               SizedBox(
                 width: double.infinity,
                 height: 52,
                 child: ElevatedButton.icon(
-                  onPressed:
-                      _isLoading ? null : _removeDigit,
+                  onPressed: _isLoading ? null : _removeDigit,
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Colors.redAccent,
-                    disabledBackgroundColor:
-                        Colors.redAccent.withOpacity(0.5),
+                    disabledBackgroundColor: Colors.redAccent.withOpacity(0.5),
                     shape: RoundedRectangleBorder(
-                      borderRadius:
-                          BorderRadius.circular(14),
+                      borderRadius: BorderRadius.circular(14),
                     ),
                   ),
                   icon: const Icon(
@@ -569,28 +467,19 @@ class _VerifyPinScreenState extends State<VerifyPinScreen> {
               // ==================================================
               // LOADING
               // ==================================================
-
               if (_isLoading)
                 const Padding(
-                  padding: EdgeInsets.only(
-                    bottom: 12,
-                  ),
-                  child: CircularProgressIndicator(
-                    color: Colors.white,
-                  ),
+                  padding: EdgeInsets.only(bottom: 12),
+                  child: CircularProgressIndicator(color: Colors.white),
                 ),
 
               // ==================================================
               // FOOTER
               // ==================================================
-
               const Text(
                 "Enter your PIN to activate DataShield protection.",
                 textAlign: TextAlign.center,
-                style: TextStyle(
-                  color: Colors.white54,
-                  fontSize: 12,
-                ),
+                style: TextStyle(color: Colors.white54, fontSize: 12),
               ),
 
               const SizedBox(height: 15),

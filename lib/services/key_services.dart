@@ -9,7 +9,7 @@ import 'package:pointycastle/export.dart';
 import 'storage_service.dart';
 
 class KeyService {
-  static const String baseUrl = 'https://192.168.18.46:8383';
+  static const String baseUrl = 'https://192.168.137.1:8383';
 
   // ============================================================
   // CREATE SECURE HTTPS CLIENT
@@ -24,9 +24,7 @@ class KeyService {
 
     print('HTTPS: rootCA.pem loaded successfully.');
 
-    securityContext.setTrustedCertificatesBytes(
-      rootCa.buffer.asUint8List(),
-    );
+    securityContext.setTrustedCertificatesBytes(rootCa.buffer.asUint8List());
 
     print('HTTPS: Custom root CA added.');
 
@@ -41,9 +39,7 @@ class KeyService {
   // MAIN UNWRAP FUNCTION
   // ============================================================
 
-  static Future<Uint8List?> getUnwrappedKey({
-    required String pin,
-  }) async {
+  static Future<Uint8List?> getUnwrappedKey({required String pin}) async {
     IOClient? client;
 
     try {
@@ -52,10 +48,7 @@ class KeyService {
       final userId = await StorageService.getUserId();
       final token = await StorageService.getJwtToken();
 
-      if (userId == null ||
-          userId.isEmpty ||
-          token == null ||
-          token.isEmpty) {
+      if (userId == null || userId.isEmpty || token == null || token.isEmpty) {
         print('KEY: Missing credentials in storage.');
         return null;
       }
@@ -112,10 +105,7 @@ class KeyService {
 
       print('KEY: Deriving KEK using PBKDF2-SHA256...');
 
-      final kek = _deriveKEK(
-        pin,
-        Uint8List.fromList(salt),
-      );
+      final kek = _deriveKEK(pin, Uint8List.fromList(salt));
 
       print('KEY: KEK derived successfully.');
 
@@ -125,14 +115,11 @@ class KeyService {
 
       print('KEY: Unwrapping DEK using RFC3394...');
 
-      final dek = _unwrapRFC3394(
-        Uint8List.fromList(encryptedKey),
-        kek,
-      );
+      final dek = _unwrapRFC3394(Uint8List.fromList(encryptedKey), kek);
 
       print('KEY: DEK successfully unwrapped.');
       print('KEY: DEK length = ${dek.length} bytes.');
-
+      //print('key:${dek}');
       return dek;
     } catch (e, stackTrace) {
       print('KEY: Key retrieval/unwrap failed.');
@@ -150,66 +137,35 @@ class KeyService {
   // KEK DERIVATION (PBKDF2-HMAC-SHA256)
   // ============================================================
 
-  static Uint8List _deriveKEK(
-    String pin,
-    Uint8List salt,
-  ) {
-    final derivator = PBKDF2KeyDerivator(
-      HMac(SHA256Digest(), 64),
-    )..init(
-        Pbkdf2Parameters(
-          salt,
-          100000,
-          32,
-        ),
-      );
+  static Uint8List _deriveKEK(String pin, Uint8List salt) {
+    final derivator = PBKDF2KeyDerivator(HMac(SHA256Digest(), 64))
+      ..init(Pbkdf2Parameters(salt, 100000, 32));
 
-    return derivator.process(
-      Uint8List.fromList(
-        utf8.encode(pin),
-      ),
-    );
+    return derivator.process(Uint8List.fromList(utf8.encode(pin)));
   }
 
   // ============================================================
   // RFC 3394 AES KEY UNWRAP
   // ============================================================
 
-  static Uint8List _unwrapRFC3394(
-    Uint8List wrappedKey,
-    Uint8List kek,
-  ) {
-    if (wrappedKey.length < 24 ||
-        wrappedKey.length % 8 != 0) {
+  static Uint8List _unwrapRFC3394(Uint8List wrappedKey, Uint8List kek) {
+    if (wrappedKey.length < 24 || wrappedKey.length % 8 != 0) {
       throw Exception('Invalid wrapped key length.');
     }
 
-    if (kek.length != 16 &&
-        kek.length != 24 &&
-        kek.length != 32) {
+    if (kek.length != 16 && kek.length != 24 && kek.length != 32) {
       throw Exception('Invalid KEK length.');
     }
 
-    final cipher = AESFastEngine()
-      ..init(
-        false,
-        KeyParameter(kek),
-      );
+    final cipher = AESFastEngine()..init(false, KeyParameter(kek));
 
     final n = (wrappedKey.length ~/ 8) - 1;
 
-    Uint8List a = Uint8List.fromList(
-      wrappedKey.sublist(0, 8),
-    );
+    Uint8List a = Uint8List.fromList(wrappedKey.sublist(0, 8));
 
     final r = List<Uint8List>.generate(
       n,
-      (i) => Uint8List.fromList(
-        wrappedKey.sublist(
-          8 + (i * 8),
-          16 + (i * 8),
-        ),
-      ),
+      (i) => Uint8List.fromList(wrappedKey.sublist(8 + (i * 8), 16 + (i * 8))),
     );
 
     final block = Uint8List(16);
@@ -218,36 +174,19 @@ class KeyService {
       for (int i = n; i >= 1; i--) {
         final t = n * j + i;
 
-        block.setRange(
-          0,
-          8,
-          a,
-        );
+        block.setRange(0, 8, a);
 
         for (int k = 7; k >= 0; k--) {
           block[k] ^= (t >> ((7 - k) * 8)) & 0xff;
         }
 
-        block.setRange(
-          8,
-          16,
-          r[i - 1],
-        );
+        block.setRange(8, 16, r[i - 1]);
 
-        cipher.processBlock(
-          block,
-          0,
-          block,
-          0,
-        );
+        cipher.processBlock(block, 0, block, 0);
 
-        a = Uint8List.fromList(
-          block.sublist(0, 8),
-        );
+        a = Uint8List.fromList(block.sublist(0, 8));
 
-        r[i - 1] = Uint8List.fromList(
-          block.sublist(8, 16),
-        );
+        r[i - 1] = Uint8List.fromList(block.sublist(8, 16));
       }
     }
 
@@ -255,16 +194,7 @@ class KeyService {
     // VERIFY DEFAULT INTEGRITY VECTOR
     // ============================================================
 
-    const expectedIV = [
-      0xA6,
-      0xA6,
-      0xA6,
-      0xA6,
-      0xA6,
-      0xA6,
-      0xA6,
-      0xA6,
-    ];
+    const expectedIV = [0xA6, 0xA6, 0xA6, 0xA6, 0xA6, 0xA6, 0xA6, 0xA6];
 
     for (int i = 0; i < 8; i++) {
       if (a[i] != expectedIV[i]) {
@@ -278,11 +208,7 @@ class KeyService {
     final dek = Uint8List(n * 8);
 
     for (int i = 0; i < n; i++) {
-      dek.setRange(
-        i * 8,
-        (i + 1) * 8,
-        r[i],
-      );
+      dek.setRange(i * 8, (i + 1) * 8, r[i]);
     }
 
     return dek;

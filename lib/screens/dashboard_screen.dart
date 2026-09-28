@@ -1,9 +1,10 @@
 import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 
 import '../services/storage_service.dart';
 import '../services/native_service.dart';
-import 'decrypted_content_screen.dart';
+
 import 'login_screen.dart';
 import 'gallery_screen.dart';
 
@@ -114,6 +115,7 @@ class DashboardScreen extends StatelessWidget {
 
                       child: const Column(
                         children: [
+                         // TestScreen(),
                           Icon(Icons.security, color: Colors.white, size: 50),
 
                           SizedBox(height: 15),

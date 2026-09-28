@@ -468,13 +468,46 @@ class FolderMonitor(
         // DELETE ORIGINAL ONLY AFTER SUCCESS
         // ========================================================
 
-        if (encryptedFile != null) {
+       if (encryptedFile != null) {
 
-            Log.d(
-                TAG,
-                "Encryption successful: ${encryptedFile.name}"
+    Log.d(
+        TAG,
+        "Encryption successful: ${encryptedFile.name}"
+    )
+
+    // ========================================================
+    // REGISTER ENCRYPTED FILE
+    // ========================================================
+
+    val registered =
+        runBlocking {
+
+            MediaRegistrationService.registerFile(
+                context = context,
+                originalName = fileName,
+                encryptedFile = encryptedFile,
+                mimeType = mimeType
             )
+        }
 
+    if (!registered) {
+
+        Log.e(
+            TAG,
+            "Registration failed. Original file will NOT be deleted."
+        )
+
+        return
+    }
+
+    Log.d(
+        TAG,
+        "File registered successfully."
+    )
+
+    // ========================================================
+    // DELETE ORIGINAL ONLY AFTER REGISTRATION SUCCESS
+    // ========================================================
             if (file.delete()) {
 
                 Log.d(
@@ -785,7 +818,23 @@ class FolderMonitor(
                 TAG,
                 "Encryption successful: ${encryptedFile.name}"
             )
+ val registered =
+    runBlocking {
+        MediaRegistrationService.registerFile(
+            context = context,
+            originalName = fileName,
+            encryptedFile = encryptedFile,
+            mimeType = ""
+        )
+    }
 
+if (!registered) {
+    Log.e(
+        TAG,
+        "Registration failed. Original raw file will NOT be deleted."
+    )
+    return
+}
             if (file.delete()) {
 
                 Log.d(

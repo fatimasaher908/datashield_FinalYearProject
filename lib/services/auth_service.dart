@@ -7,7 +7,7 @@ import 'package:http/io_client.dart';
 import '../services/storage_service.dart';
 
 class AuthService {
-  static const String baseUrl = 'https://192.168.18.46:8383';
+  static const String baseUrl = 'https://192.168.137.1:8383';
 
   // ============================================================
   // CREATE SECURE HTTPS CLIENT
@@ -22,9 +22,7 @@ class AuthService {
 
     print('AUTH HTTPS: rootCA.pem loaded successfully.');
 
-    securityContext.setTrustedCertificatesBytes(
-      rootCa.buffer.asUint8List(),
-    );
+    securityContext.setTrustedCertificatesBytes(rootCa.buffer.asUint8List());
 
     print('AUTH HTTPS: Custom root CA added.');
 
@@ -87,10 +85,7 @@ class AuthService {
         print('REGISTER: Registration successful.');
         print('REGISTER: Logging in automatically...');
 
-        return await login(
-          email: email,
-          password: password,
-        );
+        return await login(email: email, password: password);
       }
 
       print(
@@ -114,10 +109,7 @@ class AuthService {
   // LOGIN
   // ============================================================
 
-  Future<bool> login({
-    required String email,
-    required String password,
-  }) async {
+  Future<bool> login({required String email, required String password}) async {
     IOClient? client;
 
     try {
@@ -136,10 +128,7 @@ class AuthService {
       final response = await client.post(
         url,
         headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({
-          'email': email,
-          'password': password,
-        }),
+        body: jsonEncode({'email': email, 'password': password}),
       );
 
       print('LOGIN: Response received!');
@@ -162,21 +151,15 @@ class AuthService {
         print('LOGIN: JWT token received.');
 
         // SAVE JWT TOKEN
-        await StorageService.saveJwtToken(
-          token.toString(),
-        );
-
+        await StorageService.saveJwtToken(token.toString());
+await StorageService.debugJwtContents();
         print('LOGIN: JWT token saved.');
 
         // SAVE USER ID
         if (user != null && user['id'] != null) {
-          await StorageService.saveUserId(
-            user['id'].toString(),
-          );
+          await StorageService.saveUserId(user['id'].toString());
 
-          print(
-            'LOGIN: User ID saved = ${user['id']}',
-          );
+          print('LOGIN: User ID saved = ${user['id']}');
         } else {
           print('LOGIN: No user ID returned by server.');
         }
@@ -189,9 +172,7 @@ class AuthService {
         return true;
       }
 
-      print(
-        'LOGIN: Server returned status ${response.statusCode}.',
-      );
+      print('LOGIN: Server returned status ${response.statusCode}.');
 
       return false;
     } catch (e, stackTrace) {

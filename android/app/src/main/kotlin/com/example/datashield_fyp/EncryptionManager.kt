@@ -7,13 +7,14 @@ import androidx.documentfile.provider.DocumentFile
 
 object EncryptionManager {
 
-    private const val TAG = "EncryptionManager"
+    private const val TAG =
+        "EncryptionManager"
 
-    /**
-     * Encrypt a single file.
-     *
-     * Used by FolderMonitor for both images and videos.
-     */
+
+    // ============================================================
+    // ENCRYPT SINGLE FILE
+    // ============================================================
+
     fun encryptSingleFile(
         context: Context,
         file: DocumentFile,
@@ -29,9 +30,11 @@ object EncryptionManager {
         )
     }
 
-    /**
-     * Backwards-compatible image method.
-     */
+
+    // ============================================================
+    // ENCRYPT SINGLE IMAGE
+    // ============================================================
+
     fun encryptSingleImage(
         context: Context,
         file: DocumentFile,
@@ -47,37 +50,29 @@ object EncryptionManager {
         )
     }
 
-    /**
-     * Encrypt all supported media inside a folder.
-     *
-     * Supported:
-     *
-     * Images:
-     * jpg
-     * jpeg
-     * png
-     * gif
-     * webp
-     * bmp
-     * heic
-     * heif
-     *
-     * Videos:
-     * mp4
-     * mov
-     * mkv
-     * avi
-     * webm
-     * 3gp
-     * m4v
-     *
-     * Subfolders are scanned recursively.
-     */
+
+    // ============================================================
+    // ENCRYPT FOLDER
+    //
+    // Returns ONLY files that were successfully encrypted
+    // during THIS encryption operation.
+    //
+    // Already encrypted .dsenc files are skipped.
+    // ============================================================
+
     fun encryptFolder(
         context: Context,
         folderUri: Uri,
         keyBytes: ByteArray
-    ) {
+    ): List<Map<String, Any>> {
+
+        val encryptedFiles =
+            mutableListOf<Map<String, Any>>()
+
+
+        // ========================================================
+        // VALIDATE KEY
+        // ========================================================
 
         if (keyBytes.isEmpty()) {
 
@@ -86,8 +81,13 @@ object EncryptionManager {
                 "Cannot encrypt folder: encryption key is empty."
             )
 
-            return
+            return encryptedFiles
         }
+
+
+        // ========================================================
+        // OPEN ROOT FOLDER
+        // ========================================================
 
         val rootFolder =
             DocumentFile.fromTreeUri(
@@ -102,18 +102,28 @@ object EncryptionManager {
                 "Could not open media folder: $folderUri"
             )
 
-            return
+            return encryptedFiles
         }
+
+
+        // ========================================================
+        // CHECK EXISTS
+        // ========================================================
 
         if (!rootFolder.exists()) {
 
             Log.e(
                 TAG,
-                "Pictures folder does not exist."
+                "Media folder does not exist."
             )
 
-            return
+            return encryptedFiles
         }
+
+
+        // ========================================================
+        // CHECK DIRECTORY
+        // ========================================================
 
         if (!rootFolder.isDirectory) {
 
@@ -122,8 +132,13 @@ object EncryptionManager {
                 "Provided URI is not a directory."
             )
 
-            return
+            return encryptedFiles
         }
+
+
+        // ========================================================
+        // START
+        // ========================================================
 
         Log.d(
             TAG,
@@ -135,30 +150,54 @@ object EncryptionManager {
             "Folder URI: $folderUri"
         )
 
+
+        // ========================================================
+        // SCAN + ENCRYPT
+        // ========================================================
+
         scanAndEncrypt(
             context,
             rootFolder,
-            keyBytes
+            keyBytes,
+            encryptedFiles
         )
+
+
+        // ========================================================
+        // COMPLETE
+        // ========================================================
 
         Log.d(
             TAG,
             "========== FOLDER ENCRYPTION COMPLETE =========="
         )
+
+        Log.d(
+            TAG,
+            "New files encrypted: ${encryptedFiles.size}"
+        )
+
+
+        return encryptedFiles
     }
 
-    /**
-     * Recursively scan a folder.
-     */
+
+    // ============================================================
+    // SCAN FOLDER AND ENCRYPT MEDIA
+    // ============================================================
+
     private fun scanAndEncrypt(
         context: Context,
         folder: DocumentFile,
-        keyBytes: ByteArray
+        keyBytes: ByteArray,
+        encryptedFiles: MutableList<Map<String, Any>>
     ) {
 
         val children =
             try {
+
                 folder.listFiles()
+
             } catch (e: Exception) {
 
                 Log.e(
@@ -170,13 +209,18 @@ object EncryptionManager {
                 return
             }
 
+
+        // ========================================================
+        // PROCESS EACH CHILD
+        // ========================================================
+
         for (child in children) {
 
             try {
 
-                // ------------------------------------------------
-                // SUBDIRECTORY
-                // ------------------------------------------------
+                // ==================================================
+                // DIRECTORY
+                // ==================================================
 
                 if (child.isDirectory) {
 
@@ -188,24 +232,36 @@ object EncryptionManager {
                     scanAndEncrypt(
                         context,
                         child,
-                        keyBytes
+                        keyBytes,
+                        encryptedFiles
                     )
 
                     continue
                 }
 
-                // ------------------------------------------------
-                // FILE
-                // ------------------------------------------------
+
+                // ==================================================
+                // NOT A FILE
+                // ==================================================
 
                 if (!child.isFile) {
                     continue
                 }
 
-                val fileName =
-                    child.name ?: continue
 
-                // Never process .dsenc files
+                // ==================================================
+                // GET ORIGINAL FILE NAME
+                // ==================================================
+
+                val fileName =
+                    child.name
+                        ?: continue
+
+
+                // ==================================================
+                // SKIP ALREADY ENCRYPTED FILES
+                // ==================================================
+
                 if (
                     fileName.endsWith(
                         ".dsenc",
@@ -221,9 +277,10 @@ object EncryptionManager {
                     continue
                 }
 
-                // ------------------------------------------------
-                // CHECK MEDIA TYPE
-                // ------------------------------------------------
+
+                // ==================================================
+                // SKIP UNSUPPORTED FILES
+                // ==================================================
 
                 if (!isSupportedMedia(child)) {
 
@@ -235,21 +292,139 @@ object EncryptionManager {
                     continue
                 }
 
+
+                // ==================================================
+                // ENCRYPT FILE
+                // ==================================================
+
                 Log.d(
                     TAG,
                     "Encrypting: $fileName"
                 )
 
-                // ------------------------------------------------
-                // ENCRYPT
-                // ------------------------------------------------
+                val encryptedFile =
+                    encryptSingleFile(
+                        context,
+                        child,
+                        folder,
+                        keyBytes
+                    )
 
-                encryptSingleFile(
-                    context,
-                    child,
-                    folder,
-                    keyBytes
-                )
+
+                // ==================================================
+                // ONLY REGISTER SUCCESSFULLY ENCRYPTED FILES
+                // ==================================================
+
+                if (encryptedFile != null) {
+
+                    // ------------------------------------------------
+                    // ENCRYPTED FILE NAME
+                    // ------------------------------------------------
+
+                    val encryptedName =
+                        encryptedFile.name
+                            ?: "$fileName.dsenc"
+
+
+                    // ------------------------------------------------
+                    // ORIGINAL MIME TYPE
+                    // ------------------------------------------------
+
+                    val mimeType =
+                        child.type
+                            ?: "application/octet-stream"
+
+
+                    // ------------------------------------------------
+                    // FILE TYPE
+                    // ------------------------------------------------
+
+                    val fileType =
+                        when {
+
+                            mimeType.startsWith(
+                                "image/"
+                            ) -> "image"
+
+                            mimeType.startsWith(
+                                "video/"
+                            ) -> "video"
+
+                            else -> "unknown"
+                        }
+
+
+                    // ------------------------------------------------
+                    // ENCRYPTED FILE SIZE
+                    // ------------------------------------------------
+
+                    val fileSize =
+                        encryptedFile.length()
+
+
+                    // ------------------------------------------------
+                    // ADD METADATA
+                    // ------------------------------------------------
+
+                    encryptedFiles.add(
+                        mapOf(
+                            "uri" to
+                                encryptedFile
+                                    .uri
+                                    .toString(),
+
+                            "originalName" to
+                                fileName,
+
+                            "encryptedName" to
+                                encryptedName,
+
+                            "fileSize" to
+                                fileSize,
+
+                            "mimeType" to
+                                mimeType,
+
+                            "fileType" to
+                                fileType
+                        )
+                    )
+
+
+                    // ------------------------------------------------
+                    // LOG SUCCESS
+                    // ------------------------------------------------
+
+                    Log.d(
+                        TAG,
+                        "Successfully encrypted:"
+                    )
+
+                    Log.d(
+                        TAG,
+                        "  Original: $fileName"
+                    )
+
+                    Log.d(
+                        TAG,
+                        "  Encrypted: $encryptedName"
+                    )
+
+                    Log.d(
+                        TAG,
+                        "  Size: $fileSize bytes"
+                    )
+
+                    Log.d(
+                        TAG,
+                        "  MIME: $mimeType"
+                    )
+
+                    Log.d(
+                        TAG,
+                        "  Type: $fileType"
+                    )
+                }
 
             } catch (e: Exception) {
 
@@ -262,19 +437,26 @@ object EncryptionManager {
         }
     }
 
-    /**
-     * Determine whether a file is an image or video.
-     */
+
+    // ============================================================
+    // CHECK SUPPORTED MEDIA
+    //
+    // Supported:
+    // Images
+    // Videos
+    // ============================================================
+
     private fun isSupportedMedia(
         file: DocumentFile
     ): Boolean {
 
-        // --------------------------------------------------------
-        // MIME TYPE
-        // --------------------------------------------------------
+        // ========================================================
+        // CHECK MIME TYPE
+        // ========================================================
 
         val mimeType =
-            file.type?.lowercase()
+            file.type
+                ?.lowercase()
 
         if (
             mimeType != null &&
@@ -287,13 +469,20 @@ object EncryptionManager {
             return true
         }
 
-        // --------------------------------------------------------
-        // FILE EXTENSION FALLBACK
-        // --------------------------------------------------------
+
+        // ========================================================
+        // FALLBACK TO FILE EXTENSION
+        // ========================================================
 
         val name =
-            file.name?.lowercase()
+            file.name
+                ?.lowercase()
                 ?: return false
+
+
+        // ========================================================
+        // IMAGE EXTENSIONS
+        // ========================================================
 
         val imageExtensions =
             setOf(
@@ -309,6 +498,11 @@ object EncryptionManager {
                 ".tiff"
             )
 
+
+        // ========================================================
+        // VIDEO EXTENSIONS
+        // ========================================================
+
         val videoExtensions =
             setOf(
                 ".mp4",
@@ -322,18 +516,30 @@ object EncryptionManager {
                 ".ts"
             )
 
-        return imageExtensions.any {
-            name.endsWith(it)
-        } || videoExtensions.any {
-            name.endsWith(it)
-        }
+
+        // ========================================================
+        // CHECK EXTENSIONS
+        // ========================================================
+
+        return (
+            imageExtensions.any {
+                name.endsWith(it)
+            } ||
+            videoExtensions.any {
+                name.endsWith(it)
+            }
+        )
     }
 
-    /**
-     * Scan a folder without encrypting.
-     *
-     * Kept for compatibility with older project code.
-     */
+
+    // ============================================================
+    // SCAN FOLDER
+    //
+    // Returns normal, unencrypted supported media files.
+    //
+    // This function is kept for your existing functionality.
+    // ============================================================
+
     fun scanFolder(
         context: Context,
         folder: DocumentFile
@@ -350,9 +556,11 @@ object EncryptionManager {
         return results
     }
 
-    /**
-     * Recursive folder scanner.
-     */
+
+    // ============================================================
+    // RECURSIVE SCAN
+    // ============================================================
+
     private fun scanFolderRecursive(
         folder: DocumentFile,
         results: MutableList<DocumentFile>
@@ -360,7 +568,9 @@ object EncryptionManager {
 
         val children =
             try {
+
                 folder.listFiles()
+
             } catch (e: Exception) {
 
                 Log.e(
@@ -372,7 +582,16 @@ object EncryptionManager {
                 return
             }
 
+
+        // ========================================================
+        // PROCESS CHILDREN
+        // ========================================================
+
         for (child in children) {
+
+            // ----------------------------------------------------
+            // DIRECTORY
+            // ----------------------------------------------------
 
             if (child.isDirectory) {
 
@@ -381,7 +600,13 @@ object EncryptionManager {
                     results
                 )
 
-            } else if (
+            }
+
+            // ----------------------------------------------------
+            // NORMAL MEDIA FILE
+            // ----------------------------------------------------
+
+            else if (
                 child.isFile &&
                 !child.name
                     .orEmpty()
@@ -392,7 +617,9 @@ object EncryptionManager {
                 isSupportedMedia(child)
             ) {
 
-                results.add(child)
+                results.add(
+                    child
+                )
             }
         }
     }
